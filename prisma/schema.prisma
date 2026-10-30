@@ -1,0 +1,160 @@
+// 📘 Schéma de données de ClaimFlow (gestion de sinistres IARD).
+// Prisma s'en sert pour (1) générer les migrations SQL, (2) générer un client TypeScript typé.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 👤 Les 4 profils de l'énoncé. Un utilisateur a UN rôle (suffisant ici, simple à raisonner).
+enum Role {
+  POLICYHOLDER // assuré
+  HANDLER // gestionnaire de sinistres
+  EXPERT // expert mandaté
+  ADMIN
+}
+
+// 📄 Produits d'assurance simplifiés : multirisque habitation et automobile.
+enum PolicyProduct {
+  HOME
+  MOTOR
+}
+
+enum ClaimType {
+  WATER_DAMAGE // dégât des eaux
+  FIRE // incendie
+  THEFT // vol
+  GLASS_BREAKAGE // bris de glace
+  VEHICLE_COLLISION // collision (auto)
+}
+
+// 🔁 Les états du dossier : la machine à états vit dans le code (claim-state-machine.ts),
+// la base ne fait que stocker l'état courant.
+enum ClaimStatus {
+  DECLARED
+  UNDER_REVIEW
+  EXPERTISE
+  ACCEPTED
+  REJECTED
+  SETTLED
+  CLOSED
+}
+
+enum ClaimEventType {
+  DECLARED
+  STATUS_CHANGED
+  EXPERT_REPORT_SUBMITTED
+  DOCUMENT_ADDED
+}
+
+model User {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  role         Role
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  policies         Policy[]
+  declaredClaims   Claim[]         @relation("ClaimDeclarant")
+  handledClaims    Claim[]         @relation("ClaimHandler")
+  expertisedClaims Claim[]         @relation("ClaimExpert")
+  claimEvents      ClaimEvent[]
+  documents        ClaimDocument[]
+
+  @@map("users")
+}
+
+model Policy {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  number        String        @unique // numéro de contrat lisible, ex. "HAB-2026-000042"
+  product       PolicyProduct
+  holderId      String        @map("holder_id") @db.Uuid
+  coverageStart DateTime      @map("coverage_start") @db.Date // date seule : pas d'heure, pas de fuseau
+  coverageEnd   DateTime      @map("coverage_end") @db.Date
+  deductible    Int // franchise, en CENTIMES (jamais de float pour de l'argent)
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  holder User    @relation(fields: [holderId], references: [id])
+  claims Claim[]
+
+  @@index([holderId])
+  @@map("policies")
+}
+
+model Claim {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  reference       String      @unique // ex. "SIN-2026-7K3F9Q2M", communiqué à l'assuré
+  policyId        String      @map("policy_id") @db.Uuid
+  declarantId     String      @map("declarant_id") @db.Uuid
+  type            ClaimType
+  occurredOn      DateTime    @map("occurred_on") @db.Date // date de survenance
+  discoveredOn    DateTime    @map("discovered_on") @db.Date // date de connaissance (point de départ du délai)
+  declaredAt      DateTime    @default(now()) @map("declared_at")
+  description     String
+  estimatedAmount Int         @map("estimated_amount") // centimes
+  lateDeclaration Boolean     @default(false) @map("late_declaration")
+  status          ClaimStatus @default(DECLARED)
+  statusChangedAt DateTime    @default(now()) @map("status_changed_at") // sert au calcul des SLA
+  handlerId       String?     @map("handler_id") @db.Uuid
+  expertId        String?     @map("expert_id") @db.Uuid
+  expertReportAt  DateTime?   @map("expert_report_at")
+  assessedAmount  Int?        @map("assessed_amount") // montant chiffré par l'expert (centimes)
+  approvedAmount  Int?        @map("approved_amount") // montant retenu par le gestionnaire (centimes)
+  settledAmount   Int?        @map("settled_amount") // indemnité versée = retenu - franchise
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  policy    Policy          @relation(fields: [policyId], references: [id])
+  declarant User            @relation("ClaimDeclarant", fields: [declarantId], references: [id])
+  handler   User?           @relation("ClaimHandler", fields: [handlerId], references: [id])
+  expert    User?           @relation("ClaimExpert", fields: [expertId], references: [id])
+  events    ClaimEvent[]
+  documents ClaimDocument[]
+
+  @@index([declarantId])
+  @@index([handlerId])
+  @@index([expertId])
+  @@index([status, statusChangedAt]) // requête "dossiers en retard de SLA"
+  @@map("claims")
+}
+
+// 📜 Journal d'audit APPEND-ONLY : on insère, on ne modifie jamais, on ne supprime jamais.
+// Un trigger PostgreSQL (voir la migration) refuse UPDATE et DELETE au niveau de la base.
+model ClaimEvent {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  claimId    String         @map("claim_id") @db.Uuid
+  actorId    String         @map("actor_id") @db.Uuid
+  type       ClaimEventType
+  fromStatus ClaimStatus?   @map("from_status")
+  toStatus   ClaimStatus?   @map("to_status")
+  comment    String?
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  claim Claim @relation(fields: [claimId], references: [id])
+  actor User  @relation(fields: [actorId], references: [id])
+
+  @@index([claimId, createdAt])
+  @@map("claim_events")
+}
+
+model ClaimDocument {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  claimId      String   @map("claim_id") @db.Uuid
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  storageKey   String   @unique @map("storage_key") // chemin dans le stockage (disque ou S3)
+  originalName String   @map("original_name")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  claim      Claim @relation(fields: [claimId], references: [id])
+  uploadedBy User  @relation(fields: [uploadedById], references: [id])
+
+  @@index([claimId])
+  @@map("claim_documents")
+}

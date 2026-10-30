@@ -1,8 +1,7 @@
-
 {
   "name": "express-api-template",
   "version": "0.1.0",
-  "description": "",
+  "description": "API de gestion de sinistres IARD (Express 5, Prisma 7, PostgreSQL)",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -26,7 +25,15 @@
     "synth:infra": "pnpm --filter infra synth",
 
     "env:sync": "env-sync --provider=github --env-file=.env.production --sync-only",
-    "env:sync:dry": "env-sync --provider=github --env-file=.env.production --sync-only --dry-run"
+    "env:sync:dry": "env-sync --provider=github --env-file=.env.production --sync-only --dry-run",
+
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "start:prod": "node dist/scripts/migrate-deploy.js && node dist/server.js",
+    "test:unit": "vitest run --project unit",
+    "test:e2e": "vitest run --project e2e"
   },
   "devEngines": {
     "packageManager": {
@@ -40,9 +47,17 @@
     "node": ">=22.12"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1160.0",
+    "@aws-sdk/s3-request-presigner": "^3.1160.0",
     "@hardmachinelabs/zod-config": "catalog:",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "dotenv": "^18.0.9",
     "express": "catalog:",
     "helmet": "catalog:",
+    "jose": "^6.2.14",
+    "multer": "^2.5.0",
+    "pg": "^8.23.1",
     "pino": "catalog:",
     "pino-http": "catalog:",
     "zod": "catalog:"
@@ -50,12 +65,15 @@
   "devDependencies": {
     "@hardmachinelabs/env-sync": "catalog:",
     "@types/express": "catalog:",
+    "@types/multer": "^2.3.0",
     "@types/node": "catalog:",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "pino-pretty": "catalog:",
     "prettier": "catalog:",
+    "prisma": "^7.10.1",
     "supertest": "catalog:",
     "tsx": "catalog:",
     "turbo": "^2.11.10",

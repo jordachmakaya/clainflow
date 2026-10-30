@@ -1,0 +1,5 @@
+src/generated
+pnpm-lock.yaml
+infra/cdk.out
+prisma/migrations
+nestjs-migration

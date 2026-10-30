@@ -29,4 +29,6 @@ catalog:
 
 # pnpm 10+ ne lance plus les scripts d'installation des dépendances sans autorisation explicite.
 allowBuilds:
+  '@prisma/engines': true
   esbuild: true
+  prisma: true
