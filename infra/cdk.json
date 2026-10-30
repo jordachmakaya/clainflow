@@ -1,0 +1,6 @@
+{
+  "app": "tsx bin/app.ts",
+  "context": {
+    "@aws-cdk/core:checkSecretUsage": true
+  }
+}

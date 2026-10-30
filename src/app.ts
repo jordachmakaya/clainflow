@@ -14,7 +14,7 @@ export function createApp(container:Container) {
 
     app.use(helmet());
     app.use(pinoHttp({logger:container.logger}));
-    app.use(express.json({ limit: "100kb" })); // limite la taille des bodies
+    app.use(express.json({ limit: "100kb" }));
 
     app.use('/health', createHealthRouter());
     app.use(notFoundHandler)
