@@ -1,7 +1,11 @@
+
 {
   "name": "express-api-template",
   "version": "0.1.0",
   "description": "",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -11,10 +15,19 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+
+    "dev:all": "turbo run dev",
+    "build:all": "turbo run build",
+    "test:all": "turbo run test",
+    "typecheck:all": "turbo run typecheck",
+    "lint:all": "turbo run lint",
+
+    "test:infra": "pnpm --filter infra test",
+    "synth:infra": "pnpm --filter infra synth",
+
     "env:sync": "env-sync --provider=github --env-file=.env.production --sync-only",
     "env:sync:dry": "env-sync --provider=github --env-file=.env.production --sync-only --dry-run"
   },
-  "license": "MIT",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -23,7 +36,9 @@
     }
   },
   "packageManager": "pnpm@12.15.0",
-  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "dependencies": {
     "@hardmachinelabs/zod-config": "catalog:",
     "express": "catalog:",
@@ -43,11 +58,8 @@
     "prettier": "catalog:",
     "supertest": "catalog:",
     "tsx": "catalog:",
+    "turbo": "^2.11.10",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "private": true,
-  "engines": {
-    "node": ">=22.12"
   }
 }

@@ -7,6 +7,8 @@
     "typecheck": "tsc --noEmit",
     "synth": "cdk synth",
     "diff": "cdk diff",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "bootstrap": "cdk bootstrap",
     "deploy": "cdk deploy",
     "destroy": "cdk destroy",
@@ -20,6 +22,7 @@
     "@types/node": "^22.20.5",
     "aws-cdk": "catalog:",
     "tsx": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.12"
   }
 }

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "//#dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "//#build": {
+      "outputs": ["dist/**"]
+    },
+    "//#test": {
+      "outputs": [],
+      "cache": false
+    },
+    "//#typecheck": {
+      "outputs": []
+    },
+    "//#lint": {
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "outputs": [],
+      "cache": false
+    },
+    "typecheck": {
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "synth": {
+      "cache": false
+    }
+  }
+}

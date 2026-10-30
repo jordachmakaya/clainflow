@@ -122,12 +122,13 @@ export class ApiServiceStack extends Stack {
 
         // 7. Configure application  health check.
         service.targetGroup.configureHealthCheck({
-            path:'/heath',
-            healthyGrpcCodes:'200',
-            interval:Duration.seconds(30),
-            healthyThresholdCount:2,
-            unhealthyThresholdCount:3,
-        })
+            path: '/health',
+            healthyHttpCodes: '200',
+            interval: Duration.seconds(30),
+            timeout: Duration.seconds(5),
+            healthyThresholdCount: 2,
+            unhealthyThresholdCount: 3,
+        });
 
         // 8. Produce app URL after deployment.
         const appFinalURL = service.loadBalancer.loadBalancerDnsName
