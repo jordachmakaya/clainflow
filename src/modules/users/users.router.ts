@@ -28,7 +28,8 @@ export function createUserRouter(users:UsersService):Router{
         validate('query', listUserQuerySchema),
         async (req, res) => {
             const {role, page, pageSize} = valid(res.locals, 'query', listUserQuerySchema);
-            if(currentUser(res).role === Role.HANDLER && role !== Role.EXPERT) throw new ForbiddenError();
+            const ForbiddenAccess = currentUser(res).role === Role.HANDLER && role !== Role.EXPERT
+            if(ForbiddenAccess) throw new ForbiddenError();
             const publicUsers:Page<PublicUser> = await users.listByRole(role, {page, pageSize});
             res.json(publicUsers);
         }

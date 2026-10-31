@@ -340,6 +340,9 @@ export class ScryptPasswordHasher implements PasswordHasher {
      * @param stored - Hachage sérialisé enregistré en base.
      * @returns true si les empreintes correspondent, false sinon ou
      * si le hachage stocké est invalide. Dans ce cas, scrypt n'est pas lancé.
+     * Un mot de passe contenant un octet nul est aussi refusé sans scrypt :
+     * HMAC complète les clés courtes avec des zéros, donc "secret" et
+     * "secret\0" produiraient la même empreinte.
      * @throws Error si la dérivation cryptographique échoue.
      */
     async verify(
@@ -347,7 +350,7 @@ export class ScryptPasswordHasher implements PasswordHasher {
         stored: string,
     ): Promise<boolean> {
         const params = parse(stored);
-        if (!params) return false;
+        if (!params || password.includes('\0')) return false;
 
         const candidate = await deriveKey(
             password,
