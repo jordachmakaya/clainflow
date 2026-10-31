@@ -17,7 +17,14 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'e2e',
-                    include: ['test/app.test.ts', 'test/server.test.ts'],
+                    include: ['test/app.test.ts', 'test/server.test.ts', 'test/e2e/**/*.test.ts'],
+                },
+            },
+            {
+                extends: true,
+                test: {
+                    name: 'security',
+                    include: ['test/security/**/*.test.ts'],
                 },
             },
         ],

@@ -74,6 +74,18 @@ describe('ScryptPasswordHasher', () => {
             expect(await hasher.verify(PASSWORD.toUpperCase(), await hasher.hash(PASSWORD))).toBe(false);
         });
 
+        it.each([
+            ['en fin', `${PASSWORD}\u0000`],
+            ['répété en fin', `${PASSWORD}\u0000\u0000`],
+            ['au milieu', `correct\u0000${PASSWORD}`],
+        ])('rejette un octet nul %s sans lancer scrypt', async (_label, password) => {
+            const stored = await hasher.hash(PASSWORD);
+            vi.mocked(scrypt).mockClear();
+
+            expect(await hasher.verify(password, stored)).toBe(false);
+            expect(scrypt).not.toHaveBeenCalled();
+        });
+
         it('gère les caractères non ASCII', async () => {
             expect(await hasher.verify('mötdepasse🔐', await hasher.hash('mötdepasse🔐'))).toBe(true);
         });

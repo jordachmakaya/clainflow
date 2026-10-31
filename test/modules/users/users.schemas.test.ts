@@ -5,10 +5,12 @@ import {
     createStaffSchema,
     emailSchema,
     fullNameSchema,
+    isSafeText,
     listUserQuerySchema,
     passwordSchema,
     toPublicUser,
 } from "../../../src/modules/users/users.schemas.js";
+import {passwordOfLength} from "../auth/auth.fakes.js";
 
 const validStaff = {
     email: 'gaelle@claimflow.test',
@@ -44,11 +46,28 @@ describe('emailSchema', () => {
 
 describe('passwordSchema', () => {
     it.each([12, 13, 127, 128])('accepte %d caractères', (length) => {
-        expect(passwordSchema.safeParse('a'.repeat(length)).success).toBe(true);
+        expect(passwordSchema.safeParse(passwordOfLength(length)).success).toBe(true);
     });
 
     it.each([0, 11, 129, 10_000])('refuse %d caractères', (length) => {
-        expect(passwordSchema.safeParse('a'.repeat(length)).success).toBe(false);
+        expect(passwordSchema.safeParse(passwordOfLength(length)).success).toBe(false);
+    });
+
+    it.each([
+        ['blanc', ' '.repeat(12)],
+        ['répété', 'a'.repeat(12)],
+        ['suite', '123456789012'],
+        ['courant', 'motdepasse123'],
+    ])('refuse un mot de passe faible : %s', (_label, value) => {
+        const result = passwordSchema.safeParse(value);
+
+        expect(result.error?.issues.map((issue) => issue.message)).toEqual(['Password is too weak']);
+    });
+
+    it('refuse un octet nul', () => {
+        const result = passwordSchema.safeParse('correct horse\u0000battery');
+
+        expect(result.error?.issues.map((issue) => issue.message)).toEqual(['Invalid character']);
     });
 
     it('conserve le mot de passe tel quel', () => {
@@ -80,6 +99,42 @@ describe('fullNameSchema', () => {
     it.each([undefined, null, 42])('refuse une valeur non textuelle : %j', (value) => {
         expect(fullNameSchema.safeParse(value).success).toBe(false);
     });
+
+    it('refuse un retour à la ligne au milieu du nom', () => {
+        expect(fullNameSchema.safeParse('Gaëlle\nMartin').success).toBe(false);
+    });
+
+    it('retire un retour à la ligne autour du nom', () => {
+        expect(fullNameSchema.parse('Gaëlle Martin\n')).toBe('Gaëlle Martin');
+    });
+});
+
+describe('isSafeText', () => {
+    it.each([
+        ['accents', 'Gaëlle Müller-Ñuñez'],
+        ['apostrophe', 'Jeanne d\'Arc'],
+        ['arabe', 'سارة أحمد'],
+        ['hébreu', 'שרה כהן'],
+        ['emoji composé', 'Alice 👩\u200D💻'],
+    ])('accepte : %s', (_label, value) => {
+        expect(isSafeText(value)).toBe(true);
+    });
+
+    it.each([
+        ['saut de ligne', 'a\nb'],
+        ['retour chariot', 'a\rb'],
+        ['tabulation', 'a\tb'],
+        ['octet nul', 'a\u0000b'],
+        ['échappement ANSI', 'a\u001B[31mb'],
+        ['séparateur de ligne', 'a\u2028b'],
+        ['séparateur de paragraphe', 'a\u2029b'],
+        ['marque droite-gauche', 'a\u200Fb'],
+        ['marque de lettre arabe', 'a\u061Cb'],
+        ['inversion de sens', 'a\u202Eb'],
+        ['isolat de direction', 'a\u2066b'],
+    ])('refuse : %s', (_label, value) => {
+        expect(isSafeText(value)).toBe(false);
+    });
 });
 
 describe('createStaffSchema', () => {
@@ -103,6 +158,8 @@ describe('createStaffSchema', () => {
 
     it('refuse un mot de passe trop court', () => {
         expect(createStaffSchema.safeParse({...validStaff, password: 'court'}).success).toBe(false);
+        expect(createStaffSchema.safeParse({...validStaff, password: 'passwordpassword'}).success).toBe(false);
+        expect(createStaffSchema.safeParse({...validStaff, fullName: 'Gaëlle\u202EMartin'}).success).toBe(false);
     });
 
     it('normalise l\'email', () => {
