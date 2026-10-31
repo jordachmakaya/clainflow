@@ -10,7 +10,7 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'unit',
-                    include: ['src/**/*.test.ts', 'test/config/**/*.test.ts', 'test/shared/**/*.test.ts'],
+                    include: ['src/**/*.test.ts', 'test/config/**/*.test.ts', 'test/modules/**/*.test.ts', 'test/shared/**/*.test.ts'],
                 },
             },
             {
