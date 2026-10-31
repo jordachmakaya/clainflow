@@ -5,10 +5,14 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-ClaimFlow is a REST API for managing property and casualty insurance claims. It replaces email and spreadsheet workflows with a structured claim lifecycle and a tamper-proof audit trail of every decision.
+ClaimFlow is a REST API built with Express.js and TypeScript for managing property and casualty insurance claims. It replaces email and spreadsheet workflows with a structured claim lifecycle and a tamper-proof audit trail of every decision. It is designed to be deployed on AWS, with ECS Fargate, RDS PostgreSQL and S3.
 
 > [!NOTE]
 > **Project status: in active development.** The technical foundation, the data model and the authentication building blocks are in place. The business endpoints described below are not implemented yet: the only public route today is `GET /health`. See [Project status](#project-status).
+
+![ClaimFlow login screen](public/assets/08-connexion.jpg)
+
+*Login screen from the interactive ClaimFlow prototype. The front-end is not part of this repository, which only contains the API.*
 
 ## Table of contents
 
@@ -90,7 +94,7 @@ These rules define the target behavior of the API.
 | Area | Technology |
 | --- | --- |
 | Runtime and language | Node.js 22, TypeScript (strict) |
-| API | Express 5, Zod, Helmet, Pino |
+| API | Express.js 5, Zod, Helmet, Pino |
 | Authentication | scrypt (`node:crypto`), JWT (`jose`) |
 | Data | PostgreSQL, Prisma 7 |
 | Testing | Vitest, Supertest |
@@ -122,6 +126,13 @@ The application is built around a composition root: `src/container.ts` creates t
 ├── prisma/              Schema and migrations
 ├── test/                Unit, end-to-end and load tests
 ├── infra/               AWS CDK application
+│   ├── bin/
+│   │   └── app.ts       Deployment entry point and parameters
+│   ├── lib/
+│   │   ├── api-service-stack.ts         VPC, ECS Fargate and load balancer
+│   │   └── github-deploy-role-stack.ts  GitHub Actions deployment role
+│   ├── test/            Infrastructure tests
+│   └── cdk.json         CDK configuration
 └── Dockerfile           Multi-stage production image
 ```
 
@@ -154,7 +165,7 @@ These endpoints are planned and not available yet.
 | `POST` | `/auth/login` | Public | Returns a token |
 | `GET` | `/auth/me` | Authenticated | Returns the current user |
 | `POST` | `/users` | `ADMIN` | Creates a staff account |
-| `GET` | `/users` | `HANDLER`, `ADMIN` | Lists users by role |
+| `GET` | `/users` | `HANDLER` (experts only), `ADMIN` | Lists users by role with pagination |
 | `POST` | `/policies` | `ADMIN` | Creates a policy |
 | `GET` | `/policies`, `/policies/:id` | Authenticated | Lists or reads visible policies |
 | `POST` | `/claims` | `POLICYHOLDER` | Declares a claim |
@@ -277,14 +288,24 @@ Load test results and their exact conditions are published in test reports:
 
 ## Deployment
 
-The `infra` package is an AWS CDK application that describes a VPC, an ECS Fargate service and a public Application Load Balancer. It builds the production image from the root `Dockerfile` and reads application secrets from AWS Secrets Manager.
+The API is designed to run on AWS. The target production setup is ECS Fargate behind an Application Load Balancer, with RDS PostgreSQL for data and a private, encrypted S3 bucket for attachments. Nothing is deployed yet.
+
+The `infra` package is an AWS CDK application that currently describes a VPC, an ECS Fargate service and a public Application Load Balancer. It builds the production image from the root `Dockerfile` and reads application secrets from AWS Secrets Manager.
 
 ```bash
 pnpm --filter infra run bootstrap
 pnpm --filter infra run deploy
 ```
 
-Deployments are manual: pushing to `main` runs the CI pipeline but does not deploy anything. Before a production deployment, the stack still needs a managed PostgreSQL database and an HTTPS listener.
+Deployments are manual: pushing to `main` runs the CI pipeline but does not deploy anything. Before a production deployment, the stack still needs RDS PostgreSQL, an S3 bucket and an HTTPS listener.
+
+> [!CAUTION]
+> **With the current limits (0.25 vCPU, 512 MB), 4 concurrent logins kill the container.** Each password hash needs about 128 MB of memory. Before exposing a real `/login` route:
+>
+> - Set `UV_THREADPOOL_SIZE=2` in the task environment. In the local load test, the container then survived up to 32 concurrent logins.
+> - Rate limit login attempts, because a burst of requests is enough to take the API down.
+>
+> See the [October 30, 2026 test report](test-report-2026-30-10.md) for the measurements and their conditions.
 
 ## Scope
 
