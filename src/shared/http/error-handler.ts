@@ -1,7 +1,6 @@
 import type {RequestHandler,ErrorRequestHandler} from "express";
 import type {Logger} from "pino";
-import {ConflictError} from "./http-error.js";
-
+import {HttpError} from "./http-error.js";
 
 
 export interface ErrorBody{
@@ -19,7 +18,7 @@ export const notFoundHandler: RequestHandler = (req, res) => {
 // Express 5 y envoie aussi les erreurs des handlers async (promesse rejetée).
 export function errorHandler(logger: Logger): ErrorRequestHandler{
     return (error:unknown, _req,res, _next) => {
-        if (error instanceof ConflictError) {
+        if (error instanceof HttpError) {
 
             const body : ErrorBody = {
                 statusCode: error.statusCode,
@@ -37,7 +36,7 @@ export function errorHandler(logger: Logger): ErrorRequestHandler{
             res.status(400).json({statusCode:400, message:"invalid JSON body"} satisfies ErrorBody ) ;
             return;
         }
-        logger.error({error}, 'Unhandled error');
+        logger.error({err: error}, 'Unhandled error');
         // 🔒 Jamais de détail technique vers le client.
         res.status(500).json({ statusCode: 500, message: 'Internal server error' } satisfies ErrorBody);
     }

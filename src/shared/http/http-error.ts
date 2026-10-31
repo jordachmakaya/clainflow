@@ -1,3 +1,4 @@
+import {unknown} from "zod";
 
 export class HttpError extends Error {
     constructor(
@@ -31,5 +32,23 @@ export class NotFoundError extends HttpError {
 export class ConflictError extends HttpError {
     constructor(message= 'Conflict') {
         super(409,message);
+    }
+}
+
+export class PayloadToLargeError extends HttpError {
+    constructor(message= "Payload is to large") {
+        super(413, message);
+    }
+}
+
+export class UnprocessableEntityError extends HttpError {
+    constructor(message= "Unprocessable Entity", details?:unknown) {
+        super(422, message, details);
+    }
+}
+
+export class UnsupportedMediaTypeError extends HttpError {
+    constructor(message= "Unsupported Media type") {
+        super(415, message);
     }
 }

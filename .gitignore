@@ -11,3 +11,5 @@ cdk.out
 /src/generated/prisma
 uploads
 /generated/prisma
+
+deploy-in-aws-free-tier.md

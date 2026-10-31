@@ -19,6 +19,7 @@ function createTemplate(): Template {
         appName: 'test-api',
         dockerContext,
         containerPort: 3000,
+        appSecretArn: 'arn:aws:secretsmanager:eu-west-3:123456789012:secret:test-api/app-AbCdEf',
         withDatabase: false,
         withRedis: false,
     });
@@ -97,6 +98,7 @@ describe('ApiServiceStack', () => {
                 appName: 'test-api',
                 dockerContext,
                 containerPort: 3000,
+                appSecretArn: 'arn:aws:secretsmanager:eu-west-3:123456789012:secret:test-api/app-AbCdEf',
                 withDatabase: true,
                 withRedis: false,
             });

@@ -1,7 +1,7 @@
 import {App} from "aws-cdk-lib";
-import {ApiServiceStack} from "../lib/api-service-stack.ts";
 import * as console from "node:console";
-import {GithubDeployRoleStack} from "../lib/github-deploy-role-stack.ts";
+import {ApiServiceStack} from "../lib/api-service-stack.js";
+import {GithubDeployRoleStack} from "../lib/github-deploy-role-stack.js";
 
 
 const context = 'githubRepos';
@@ -11,6 +11,7 @@ new ApiServiceStack(app, "ExpressTemplateStack", {
     appName: 'express-template',
     dockerContext:'..',
     containerPort:3000,
+    appSecretArn:'arn:aws:secretsmanager:<region>:<compte>:secret:express-template/app-XXXXXX',
     withDatabase:false,
     withRedis:false,
 })

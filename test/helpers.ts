@@ -5,6 +5,12 @@ import { createContainer } from '../src/container.js';
 
 // Construit une app de test avec une config contrôlée (pas de .env lu).
 export function createTestApp(overrides: Record<string, string> = {}): Express {
-    const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', ...overrides });
+    const config = loadConfig({
+        NODE_ENV: 'test',
+        LOG_LEVEL: 'silent',
+        JWT_SECRET: 'test-secret-of-at-least-32-characters',
+        DATABASE_URL: 'postgresql://test:test@localhost:5432/claimflow_test',
+        ...overrides,
+    });
     return createApp(createContainer(config));
 }

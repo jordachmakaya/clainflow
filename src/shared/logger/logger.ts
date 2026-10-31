@@ -7,7 +7,7 @@ export function createLogger (config:AppConfig):Logger{
     return pino({
         level:  config.get('LOG_LEVEL'),
         // Ne jamais logger ces champs, même par accident.
-        redact: ['req.header.authorization', "req.headers.cookies"],
+        redact: ['req.headers.authorization', 'req.headers.cookie'],
         ...(isDev ? { transport : {target : 'pino-pretty'}}: {} )
     })
 }

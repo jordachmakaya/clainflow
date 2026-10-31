@@ -6,7 +6,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm run build && pnpm prune --prod
+RUN pnpm run db:generate && pnpm run build && pnpm prune --prod
 
 # ---------- Étape 2 : image finale, minimale ----------
 FROM node:22-alpine AS runtime

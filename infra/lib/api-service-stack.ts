@@ -7,6 +7,7 @@ import {
     RemovalPolicy,
     Stack,
     type StackProps,
+    aws_secretsmanager as secretsmanager,
 } from 'aws-cdk-lib';
 
 import {
@@ -23,6 +24,7 @@ export interface ApiServiceStackProps extends StackProps {
     readonly appName: string;
     readonly dockerContext:string
     readonly containerPort: number
+    readonly appSecretArn: string
     readonly withDatabase:boolean
     readonly withRedis:boolean
 }
@@ -80,6 +82,9 @@ export class ApiServiceStack extends Stack {
         // 5. Build Docker image from this repo.
         const image = ecs.ContainerImage.fromAsset(dockerDirectory)
 
+        // Secret "JSON" créé hors de la stack : sa valeur n'apparaît jamais dans le template.
+        const appSecret = secretsmanager.Secret.fromSecretCompleteArn(this, 'AppSecret', props.appSecretArn)
+
         // 6. Create service ECS Fargate with a ALB.
         const service = new ecsPatterns.ApplicationLoadBalancedFargateService(
             this,
@@ -100,15 +105,21 @@ export class ApiServiceStack extends Stack {
                 },
 
                 listenerPort:80,
+                circuitBreaker:{ rollback:true },
 
                 taskImageOptions:{
                     image,
                     containerName:`${serviceName}-container`,
+                    containerPort:props.containerPort,
 
                     environment:{
                         NODE_ENV:'production',
                         PORT: String(props.containerPort),
                         LOG_LEVEL:'info'
+                    },
+                    secrets:{
+                        JWT_SECRET: ecs.Secret.fromSecretsManager(appSecret, 'JWT_SECRET'),
+                        DATABASE_URL: ecs.Secret.fromSecretsManager(appSecret, 'DATABASE_URL'),
                     },
 
                     logDriver: ecs.LogDriver.awsLogs({
@@ -137,7 +148,7 @@ export class ApiServiceStack extends Stack {
             description:'Express api HTTP URL',
         })
 
-        new CfnOutput(this,'HearthUrl', {
+        new CfnOutput(this,'HealthUrl', {
             value:`http://${appFinalURL}/health`,
             description:'Express api health verification URL',
         })

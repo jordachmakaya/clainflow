@@ -16,8 +16,13 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run db:generate # src/generated/prisma n'est pas versionné
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm --filter infra run typecheck # l'infra aussi est du code
-      - run: pnpm test
+      - run: pnpm run test:coverage
+      - run: pnpm run test:unit # les calculs de dates ne doivent pas dépendre du fuseau du serveur
+        env:
+          TZ: Pacific/Kiritimati # UTC+14 : le plus loin possible du fuseau UTC de la CI
+      - run: pnpm --filter infra run test # vérifie le template CloudFormation généré
       - run: pnpm run build
