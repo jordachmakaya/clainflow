@@ -1,6 +1,7 @@
 import type {NewUser, UserRepository} from "./users.repository.js";
 import type {PasswordHasher} from "../auth/password-hasher.js";
-import { ConflictError} from "../../shared/http/http-error.js";
+import type {BreachChecker} from "./breached-password.js";
+import {ConflictError, UnprocessableEntityError} from "../../shared/http/http-error.js";
 import {type CreateStaffInput, type PublicUser, toPublicUser} from "./users.schemas.js";
 import {isPrismaError, PrismaErrorCode} from "../../shared/database/prisma-errors.js";
 import type {Role} from "../../generated/prisma/enums.js";
@@ -10,13 +11,17 @@ import type {Page, Pagination} from "../../shared/http/pagination.js";
 export class UsersService{
     constructor(
         private readonly users:UserRepository,
-        private readonly hasher:PasswordHasher
+        private readonly hasher:PasswordHasher,
+        private readonly breaches:BreachChecker,
         ){}
 
     async createAccount(input: Omit<NewUser, 'passwordHash'> & { password: string }) {
         const userAlreadyExist = await this.users.findByEmail(input.email)
         if(userAlreadyExist){
             throw new ConflictError('Email already exists');
+        }
+        if(await this.breaches.isBreached(input.password)){
+            throw new UnprocessableEntityError('This password appears in a known data breach');
         }
         const passwordHash: string = await this.hasher.hash(input.password);
         if(!passwordHash){

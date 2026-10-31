@@ -22,7 +22,8 @@ export const envSchema = z.object({
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
     JWT_SECRET: z.string().min(32),
-    JWT_TTL_SECOND: z.coerce.number().int().positive().default(3600),
+    // Pas de révocation (hors périmètre) : un rôle retiré reste valable jusqu'à l'expiration du token.
+    JWT_TTL_SECOND: z.coerce.number().int().positive().default(900),
 
     // Coût scrypt = 2^N. OWASP recommande N=17 (128 Mio par hachage). Abaissable en test uniquement.
     PASSWORD_SCRYPT_LOG2N: z.coerce.number().int().positive().min(14).default(17),

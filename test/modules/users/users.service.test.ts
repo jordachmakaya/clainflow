@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, type Mock, vi} from "vitest
 import {Role} from "../../../src/generated/prisma/enums.js";
 import type {PasswordHasher} from "../../../src/modules/auth/password-hasher.js";
 import {UsersService} from "../../../src/modules/users/users.service.js";
-import {ConflictError} from "../../../src/shared/http/http-error.js";
+import {ConflictError, UnprocessableEntityError} from "../../../src/shared/http/http-error.js";
 import {fakeHasher, InMemoryUserRepository, uniqueEmailError} from "./users.fakes.js";
 
 const STAFF = {
@@ -17,12 +17,14 @@ const PAGE = {page: 1, pageSize: 20};
 describe('UsersService', () => {
     let repository: InMemoryUserRepository;
     let hash: Mock<PasswordHasher['hash']>;
+    let isBreached: Mock<(password: string) => Promise<boolean>>;
     let service: UsersService;
 
     beforeEach(() => {
         repository = new InMemoryUserRepository();
         hash = vi.fn(async (password: string) => `hashed:${password}`);
-        service = new UsersService(repository, {...fakeHasher, hash});
+        isBreached = vi.fn(async () => false);
+        service = new UsersService(repository, {...fakeHasher, hash}, {isBreached});
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
     });
 
@@ -49,6 +51,26 @@ describe('UsersService', () => {
 
             expect(repository.users[0]?.passwordHash).toBe(`hashed:${STAFF.password}`);
             expect(repository.users[0]).not.toHaveProperty('password');
+        });
+
+        it('refuse un mot de passe présent dans une fuite, sans le hacher', async () => {
+            isBreached.mockResolvedValue(true);
+
+            await expect(service.createAccount(STAFF))
+                .rejects.toThrow(new UnprocessableEntityError('This password appears in a known data breach'));
+
+            expect(isBreached).toHaveBeenCalledExactlyOnceWith(STAFF.password);
+            expect(hash).not.toHaveBeenCalled();
+            expect(repository.users).toHaveLength(0);
+        });
+
+        it('ne consulte pas les fuites si l\'email est pris', async () => {
+            await service.createAccount(STAFF);
+            isBreached.mockClear();
+
+            await expect(service.createAccount(STAFF)).rejects.toBeInstanceOf(ConflictError);
+
+            expect(isBreached).not.toHaveBeenCalled();
         });
 
         it('accepte le rôle POLICYHOLDER pour l\'inscription', async () => {

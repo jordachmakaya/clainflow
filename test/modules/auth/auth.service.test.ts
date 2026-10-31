@@ -6,7 +6,7 @@ import type {PasswordHasher} from "../../../src/modules/auth/password-hasher.js"
 import type {TokenService} from "../../../src/modules/auth/token-service.js";
 import {UsersService} from "../../../src/modules/users/users.service.js";
 import {ConflictError, NotFoundError, UnauthorizedError} from "../../../src/shared/http/http-error.js";
-import {fakeHasher, InMemoryUserRepository} from "../users/users.fakes.js";
+import {fakeHasher, InMemoryUserRepository, noBreaches} from "../users/users.fakes.js";
 import {ALICE, seedUser, TTL_SECONDS} from "./auth.fakes.js";
 
 const CREDENTIALS = {email: ALICE.email, password: ALICE.password};
@@ -26,7 +26,7 @@ describe('AuthService', () => {
         warn = vi.fn();
         service = new AuthService(
             repository,
-            new UsersService(repository, hasher),
+            new UsersService(repository, hasher, noBreaches),
             hasher,
             {sign} as unknown as TokenService,
             TTL_SECONDS,

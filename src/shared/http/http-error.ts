@@ -53,6 +53,12 @@ export class UnprocessableEntityError extends HttpError {
     }
 }
 
+export class TooManyRequestsError extends HttpError {
+    constructor(message= "Too many requests, please try again later") {
+        super(429, message);
+    }
+}
+
 export class ServiceUnavailableError extends HttpError {
     constructor(message= "Service temporarily unavailable") {
         super(503, message);
