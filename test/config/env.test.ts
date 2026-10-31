@@ -48,7 +48,7 @@ describe('loadConfig', () => {
         expect(config.get('NODE_ENV')).toBe('development');
         expect(config.get('PORT')).toBe(3000);
         expect(config.get('LOG_LEVEL')).toBe('info');
-        expect(config.get('JWT_TTL_SECOND')).toBe(3600);
+        expect(config.get('JWT_TTL_SECOND')).toBe(900);
         expect(config.get('PASSWORD_SCRYPT_LOG2N')).toBe(17);
         expect(config.get('SLA_UNDER_REVIEW_DAYS')).toBe(10);
         expect(config.get('FILE_STORAGE_DRIVER')).toBe('local');

@@ -1,5 +1,6 @@
 import {Prisma} from "../../../src/generated/prisma/client.js";
 import type {PasswordHasher} from "../../../src/modules/auth/password-hasher.js";
+import type {BreachChecker} from "../../../src/modules/users/breached-password.js";
 import type {NewUser, User, UserRepository} from "../../../src/modules/users/users.repository.js";
 import {type PageResult, type Pagination, toSkipTake} from "../../../src/shared/http/pagination.js";
 
@@ -42,6 +43,10 @@ export class InMemoryUserRepository implements UserRepository {
         if (user) user.passwordHash = passwordHash;
     }
 }
+
+export const noBreaches: BreachChecker = {
+    isBreached: async () => false,
+};
 
 export const fakeHasher: PasswordHasher = {
     hash: async (password) => `hashed:${password}`,

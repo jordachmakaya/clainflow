@@ -9,7 +9,7 @@ import {TokenService} from "../../../src/modules/auth/token-service.js";
 import {createUserRouter} from "../../../src/modules/users/users.router.js";
 import {UsersService} from "../../../src/modules/users/users.service.js";
 import {errorHandler} from "../../../src/shared/http/error-handler.js";
-import {fakeHasher, InMemoryUserRepository, uniqueEmailError} from "./users.fakes.js";
+import {fakeHasher, InMemoryUserRepository, noBreaches, uniqueEmailError} from "./users.fakes.js";
 
 const tokens = new TokenService('test-secret-of-at-least-32-characters', 3600);
 
@@ -23,7 +23,7 @@ const STAFF = {
 function createApp(repository: InMemoryUserRepository, hasher = fakeHasher) {
     const app = express();
     app.use(express.json());
-    app.use('/users', authenticate(tokens), createUserRouter(new UsersService(repository, hasher)));
+    app.use('/users', authenticate(tokens), createUserRouter(new UsersService(repository, hasher, noBreaches)));
     app.use(errorHandler({error: vi.fn()} as unknown as Logger));
     return app;
 }

@@ -105,6 +105,40 @@ describe('auth router', () => {
         });
     });
 
+    describe('limite de débit', () => {
+        const limited = express();
+        limited.use(express.json());
+        limited.use('/auth', createAuthRouter(auth as unknown as AuthService, tokens, {
+            windowMs: 60_000,
+            maxFailuresPerAccount: 2,
+            maxFailuresPerIp: 3,
+            maxRegistrationsPerIp: 1,
+        }));
+        limited.use(errorHandler({error: vi.fn()} as unknown as Logger));
+
+        const login = (email = ALICE.email) => request(limited).post('/auth/login').send({...CREDENTIALS, email});
+
+        it('renvoie 429 après trop d\'échecs sur un compte, sans appeler le service', async () => {
+            auth.login.mockRejectedValue(new UnauthorizedError('Invalid credentials'));
+            await login().expect(401);
+            await login().expect(401);
+            auth.login.mockClear();
+
+            const res = await login();
+
+            expect(res.status).toBe(429);
+            expect(res.body).toEqual({statusCode: 429, message: 'Too many requests, please try again later'});
+            expect(res.headers['retry-after']).toBeDefined();
+            expect(auth.login).not.toHaveBeenCalled();
+        });
+
+        it('renvoie 429 sur l\'inscription au-delà de la limite, avant la validation', async () => {
+            await request(limited).post('/auth/register').send({}).expect(400);
+
+            await request(limited).post('/auth/register').send({}).expect(429);
+        });
+    });
+
     describe('GET /auth/me', () => {
         const bearer = async () => `Bearer ${await tokens.sign({id: 'user-1', role: Role.POLICYHOLDER})}`;
 

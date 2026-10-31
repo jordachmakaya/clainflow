@@ -246,7 +246,7 @@ Variables are validated at startup by `src/config/env.ts`. The application refus
 | `NODE_ENV` | No | `development` | `development`, `test` or `production` |
 | `PORT` | No | `3000` | HTTP port |
 | `LOG_LEVEL` | No | `info` | Pino log level |
-| `JWT_TTL_SECOND` | No | `3600` | Token lifetime in seconds |
+| `JWT_TTL_SECOND` | No | `900` | Token lifetime in seconds |
 | `PASSWORD_SCRYPT_LOG2N` | No | `17` | scrypt cost, at least 17 in production |
 | `SLA_UNDER_REVIEW_DAYS` | No | `10` | Days before a claim under review is overdue |
 | `FILE_STORAGE_DRIVER` | No | `local` | `local` or `s3` |
@@ -268,6 +268,7 @@ Variables are validated at startup by `src/config/env.ts`. The application refus
 | `pnpm run test:unit` | Runs unit tests |
 | `pnpm run test:e2e` | Runs end-to-end tests |
 | `pnpm run test:security` | Runs the security oracle |
+| `pnpm run test:integration` | Runs the tests that need a local PostgreSQL (`DATABASE_URL` from `.env`, `localhost` only) and the live Pwned Passwords API |
 | `pnpm run test:coverage` | Runs tests and enforces coverage thresholds |
 | `pnpm run test:stress` | Runs the local load test with Docker |
 | `pnpm run test:all` | Runs the tests of every package with Turborepo |
@@ -289,11 +290,11 @@ Load test results and their exact conditions are published in test reports:
 
 ### Security oracle
 
-`test/security/auth.oracle.test.ts` plays the attacker against `AuthService` and the authentication schemas, then checks a security invariant after each attempt. It runs with `pnpm run test:security`.
+`test/security/auth.oracle.test.ts` plays the attacker against `AuthService` and the authentication schemas, then checks a security invariant after each attempt. `test/security/policies.oracle.test.ts` does the same against the `/policies` routes. Both run with `pnpm run test:security`.
 
-The oracle uses the real scrypt hasher and real JWT tokens where the scenario depends on them, with an in-memory repository. It calls the service directly, so it does not go through HTTP or PostgreSQL. Token forgery scenarios exercise `TokenService` on tokens issued by `AuthService`. Enumeration resistance is checked by comparing the error returned and the hashing work performed, not by measuring response times. A passing scenario shows that this attack failed against this code, not that the code is free of vulnerabilities.
+The auth oracle uses the real scrypt hasher and real JWT tokens where the scenario depends on them, with an in-memory repository. It calls the service directly, so it does not go through HTTP or PostgreSQL. Token forgery scenarios exercise `TokenService` on tokens issued by `AuthService`. Enumeration resistance is checked by comparing the error returned and the hashing work performed, not by measuring response times. A passing scenario shows that this attack failed against this code, not that the code is free of vulnerabilities.
 
-#### What the oracle failed to break
+#### What the auth oracle failed to break
 
 | Attack | Result |
 | --- | --- |
@@ -319,17 +320,47 @@ The oracle uses the real scrypt hasher and real JWT tokens where the scenario de
 | Stolen database: identical passwords, plaintext search, cost downgrade | Unique salted hashes, cost never lowered |
 | Secret leaks in responses, tokens and errors | No password or hash exposed |
 | Failures during login (hash check, database, token signing) | No session issued, and never an empty response |
+| Credential stuffing on one account | `429` after 5 failures in 15 minutes, before the password is checked |
+| Password spraying across accounts | `429` after 20 failures per IP in 15 minutes |
+| Bypassing the limit with email case, a forged `X-Forwarded-For` or an IPv6 subnet | Same counter, still `429` |
+| Locking a victim out from another IP | The victim can still log in |
+| Mass registration, including invalid bodies | `429` after 20 requests per IP in 15 minutes |
+| Registering with a password from a known breach | Refused with `422`, no account created |
+| Reading the password from the breach lookup | Only the first 5 characters of its SHA-1 leave the server |
+| Taking the breach lookup down to block registration | Registration continues, and the failure is logged without the password |
 
-The weak password rule applies when an account is created, not at login, so an existing account keeps working. It catches obvious patterns and a short built-in list. It does not replace a check against known breaches.
+The weak password and breach rules apply when an account is created, not at login, so an existing account keeps working. The weak password rule catches obvious patterns and a short built-in list. The breach lookup uses the [Pwned Passwords](https://haveibeenpwned.com/API/v3#PwnedPasswords) range API and is skipped when the service is unavailable.
 
-#### Not covered
+#### Limits and accepted risks
 
-These scenarios need a new feature or a decision, and are tracked as `todo` in the oracle:
+- Rate limit counters live in memory, so each running task counts separately. A global limit needs a shared store or an AWS WAF rule. The account limit is keyed on email and IP, so that a stranger cannot lock an account, which means an attacker rotating through many IPs is only slowed by the per-IP limit.
+- Registration keeps returning `409 Email already exists`, which reveals that an email has an account. Hiding it needs a confirmation email, and email notifications are out of [scope](#scope). Rate limiting reduces the risk.
+- A token cannot be revoked, because session revocation is out of [scope](#scope). After an account is deleted or a role changes, the token stays valid until it expires, which is why tokens last 15 minutes by default.
 
-- Rate limiting against credential stuffing and password spraying.
-- Hiding whether an email has an account at registration, which currently returns `409 Email already exists`.
-- Checking passwords against known breaches.
-- Revoking a token after an account is deleted or a role changes. Session revocation is out of [scope](#scope), so a token stays valid until it expires.
+#### What the policies oracle failed to break
+
+The policies oracle sends HTTP requests through the real routes, schemas and JWT middleware, with an in-memory repository. The router is mounted in the test itself, because `app.ts` does not mount it yet. The number collision scenario is also verified on PostgreSQL by `pnpm run test:integration`.
+
+| Attack | Result |
+| --- | --- |
+| Reading another policyholder's policy by its identifier | `404`, with the same body as a policy that does not exist |
+| Widening the list with `holderId`, `id`, `where` or a Prisma operator in the query string | Ignored: the holder comes from the token |
+| Policyholder sending `role: ADMIN` in the request body | Refused with `403`, nothing written |
+| Attaching a policy to a staff account | Refused with `422`, nothing written |
+| Forged tokens: other key, `alg=none`, rewritten role, unknown role, expired | Refused with `401`, nothing written |
+| Mass assignment of `id`, `number` or `createdAt` | Ignored: the server sets these fields |
+| Prototype pollution through `__proto__`, including to supply a required field | Prototype untouched, a missing field stays refused |
+| Prisma operators, SQL injection and type confusion in the body | Refused with `400`, nothing written |
+| Out-of-range deductibles, including negative, decimal and above the `Int` column | Refused with `400`, nothing written |
+| Invalid dates, timestamps, reversed or zero-length coverage | Refused with `400`, nothing written |
+| Crafted identifiers in the path: SQL injection, path traversal, null byte | Refused with `400` before any database read |
+| Pagination abuse: oversized page size, zero, negative, decimal, repeated and infinite values | Refused with `400` before any database read |
+| Telling an unknown holder from a staff account through the error | Same `422` and same body |
+| Reading account data or internal fields in a response | Only the public policy fields are returned |
+| Reading the SQL schema from a constraint error, or infrastructure details from a database failure | Generic `409` or `500` body |
+| Blocking a subscription with a number collision | Retried up to five times, then `409` |
+
+Staff can read every policy by design, so these scenarios restrict policyholders. The oracle has no `todo`, but two limits also apply here: a token keeps its role until it expires, and rate limiting only covers `/auth/login` and `/auth/register`.
 
 ## Deployment
 
@@ -348,7 +379,7 @@ Deployments are manual: pushing to `main` runs the CI pipeline but does not depl
 > **With the current limits (0.25 vCPU, 512 MB), 4 concurrent logins kill the container.** Each password hash needs about 128 MB of memory. Before exposing a real `/login` route:
 >
 > - Set `UV_THREADPOOL_SIZE=2` in the task environment. In the local load test, the container then survived up to 32 concurrent logins.
-> - Rate limit login attempts, because a burst of requests is enough to take the API down.
+> - Do not rely on the login rate limit alone. It counts failed attempts per task, and a burst of concurrent requests is enough to take the API down before those counters react.
 >
 > See the [October 30, 2026 test report](test-report-2026-30-10.md) for the measurements and their conditions.
 

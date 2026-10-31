@@ -1,12 +1,18 @@
-import {createHmac} from "node:crypto";
+import {createHash, createHmac} from "node:crypto";
+import express from "express";
 import {decodeJwt, SignJWT} from "jose";
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import type {Logger} from "pino";
+import request from "supertest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {Role} from "../../src/generated/prisma/enums.js";
+import {createAuthRouter} from "../../src/modules/auth/auth.router.js";
 import {loginSchema, registerSchema, type RegisterInput} from "../../src/modules/auth/auth.schemas.js";
 import {type PasswordHasher, ScryptPasswordHasher} from "../../src/modules/auth/password-hasher.js";
+import {PwnedPasswordsChecker} from "../../src/modules/users/breached-password.js";
+import {errorHandler} from "../../src/shared/http/error-handler.js";
 import {ConflictError, HttpError, NotFoundError, UnauthorizedError} from "../../src/shared/http/http-error.js";
 import {ALICE, createAuthStack, SECRET, seedUser} from "../modules/auth/auth.fakes.js";
-import {fakeHasher} from "../modules/users/users.fakes.js";
+import {fakeHasher, InMemoryUserRepository} from "../modules/users/users.fakes.js";
 
 // 🕵️ Oracle de sécurité : chaque test joue un attaquant, puis vérifie un invariant.
 // Un test rouge n'est pas un test à ajuster, c'est une faille à corriger dans le code.
@@ -591,12 +597,147 @@ describe('oracle : contenu stocké piégé', () => {
     });
 });
 
-// Ces attaques demandent une fonctionnalité ou un arbitrage, pas une correction de ces deux fichiers.
-describe('oracle : non couvert aujourd\'hui', () => {
-    it.todo('freine le bourrage d\'identifiants et la pulvérisation de mots de passe (limite de débit)');
-    it.todo('ne révèle pas à l\'inscription qu\'un email a déjà un compte (409 Email already exists)');
-    it.todo('révoque un token après suppression du compte ou changement de rôle');
-    it.todo('compare les mots de passe aux fuites connues (Have I Been Pwned)');
+describe('oracle : limite de débit', () => {
+    const CLIENT_IP = '203.0.113.7';
+    const WRONG = {...CREDENTIALS, password: 'mauvais mot de passe'};
+
+    let stack: ReturnType<typeof createAuthStack>;
+    let app: express.Express;
+
+    // Comme derrière le load balancer : la vraie IP est la dernière de X-Forwarded-For.
+    const post = (path: string, body: object, ip = CLIENT_IP, spoofed = '') => request(app)
+        .post(path)
+        .set('X-Forwarded-For', spoofed ? `${spoofed}, ${ip}` : ip)
+        .send(body);
+    const login = (body: object, ip = CLIENT_IP, spoofed = '') => post('/auth/login', body, ip, spoofed);
+
+    beforeEach(async () => {
+        stack = fakeStack();
+        await stack.service.register(ALICE);
+        app = express();
+        app.set('trust proxy', 1);
+        app.use(express.json());
+        app.use('/auth', createAuthRouter(stack.service, stack.tokens));
+        app.use(errorHandler({error: vi.fn()} as unknown as Logger));
+    });
+
+    it('stoppe le bourrage d\'identifiants, même avec le bon mot de passe ensuite', async () => {
+        for (let i = 0; i < 5; i++) await login(WRONG).expect(401);
+        const attempt = vi.spyOn(stack.service, 'login');
+
+        await login(CREDENTIALS).expect(429);
+
+        expect(attempt).not.toHaveBeenCalled();
+    });
+
+    it('ne se contourne pas en changeant la casse de l\'email', async () => {
+        for (let i = 0; i < 5; i++) await login({...WRONG, email: i % 2 ? ALICE.email : ALICE.email.toUpperCase()}).expect(401);
+
+        await login({...WRONG, email: ` ${ALICE.email.toUpperCase()} `}).expect(429);
+    });
+
+    it('ne se contourne pas en falsifiant X-Forwarded-For', async () => {
+        for (let i = 0; i < 5; i++) await login(WRONG, CLIENT_IP, `198.51.100.${i}`).expect(401);
+
+        await login(WRONG, CLIENT_IP, '198.51.100.200').expect(429);
+    });
+
+    it('stoppe la pulvérisation de mots de passe sur plusieurs comptes', async () => {
+        for (let i = 0; i < 20; i++) await login({...WRONG, email: `cible${i}@claimflow.test`}).expect(401);
+
+        await login({...WRONG, email: 'cible-suivante@claimflow.test'}).expect(429);
+    });
+
+    it('regroupe un sous-réseau IPv6', async () => {
+        for (let i = 0; i < 20; i++) {
+            await login({...WRONG, email: `cible${i}@claimflow.test`}, `2001:db8:0:1::${i + 1}`).expect(401);
+        }
+
+        await login({...WRONG, email: 'cible-suivante@claimflow.test'}, '2001:db8:0:1::ffff').expect(429);
+    });
+
+    it('ne laisse pas un attaquant verrouiller le compte de sa victime', async () => {
+        for (let i = 0; i < 5; i++) await login(WRONG).expect(401);
+
+        await login(CREDENTIALS, '203.0.113.99').expect(200);
+    });
+
+    it('ne pénalise pas des connexions réussies derrière la même IP', async () => {
+        for (let i = 0; i < 25; i++) await login(CREDENTIALS).expect(200);
+    });
+
+    it('stoppe les inscriptions en masse, même invalides', async () => {
+        for (let i = 0; i < 20; i++) await post('/auth/register', {}).expect(400);
+
+        await post('/auth/register', ALICE).expect(429);
+    });
+});
+
+describe('oracle : mots de passe présents dans des fuites', () => {
+    const DIGEST = createHash('sha1').update(ALICE.password, 'utf8').digest('hex').toUpperCase();
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function breachStack(request: typeof fetch) {
+        const warn = vi.fn();
+        const checker = new PwnedPasswordsChecker({warn} as unknown as Logger, request);
+        return {warn, stack: createAuthStack({...fakeHasher}, new InMemoryUserRepository(), checker)};
+    }
+
+    it('refuse à l\'inscription un mot de passe fuité', async () => {
+        const {stack} = breachStack(async () => new Response(`${DIGEST.slice(5)}:12`));
+
+        await expect(refusal(stack.service.register(ALICE))).resolves.toEqual({
+            name: 'UnprocessableEntityError',
+            statusCode: 422,
+            message: 'This password appears in a known data breach',
+        });
+        expect(stack.repository.users).toHaveLength(0);
+    });
+
+    it('n\'envoie ni le mot de passe ni son empreinte complète', async () => {
+        const urls: string[] = [];
+        const {stack} = breachStack(async (url, init) => {
+            urls.push(`${url as string} ${JSON.stringify(init?.headers)}`);
+            return new Response('');
+        });
+
+        await stack.service.register(ALICE);
+
+        expect(urls).toHaveLength(1);
+        expect(urls[0]).toContain(`/range/${DIGEST.slice(0, 5)} `);
+        expect(urls[0]).not.toContain(ALICE.password);
+        expect(urls[0]).not.toContain(DIGEST.slice(5));
+    });
+
+    it('ne bloque pas l\'inscription si le service tombe, sans journaliser le mot de passe', async () => {
+        const {stack, warn} = breachStack(async () => {
+            throw new TypeError('fetch failed');
+        });
+
+        await expect(stack.service.register(ALICE)).resolves.toMatchObject({user: {email: ALICE.email}});
+
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(ALICE.password);
+    });
+
+    it('ne se laisse pas tromper par une ligne de remplissage', async () => {
+        const {stack} = breachStack(async () => new Response(`${DIGEST.slice(5)}:0`));
+
+        await expect(stack.service.register(ALICE)).resolves.toMatchObject({user: {email: ALICE.email}});
+    });
+
+    it('n\'empêche pas la connexion d\'un compte existant', async () => {
+        const {stack} = breachStack(async () => new Response(''));
+        await stack.service.register(ALICE);
+        const request = vi.fn(async () => new Response(`${DIGEST.slice(5)}:12`));
+        vi.spyOn(globalThis, 'fetch').mockImplementation(request);
+
+        await expect(stack.service.login(CREDENTIALS)).resolves.toMatchObject({user: {email: ALICE.email}});
+
+        expect(request).not.toHaveBeenCalled();
+    });
 });
 
 describe('oracle : refus typé', () => {
