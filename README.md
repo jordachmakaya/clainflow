@@ -1,106 +1,297 @@
+# ClaimFlow
 
-```aiignore
- # Lancer Container
-docker run --rm -p 3000:3000 -e PORT=3000 claimflow
+[![CI](https://github.com/jordachmakaya/clainflow/actions/workflows/ci.yml/badge.svg)](https://github.com/jordachmakaya/clainflow/actions/workflows/ci.yml)
+![Node](https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+ClaimFlow is a REST API for managing property and casualty insurance claims. It replaces email and spreadsheet workflows with a structured claim lifecycle and a tamper-proof audit trail of every decision.
+
+> [!NOTE]
+> **Project status: in active development.** The technical foundation, the data model and the authentication building blocks are in place. The business endpoints described below are not implemented yet: the only public route today is `GET /health`. See [Project status](#project-status).
+
+## Table of contents
+
+- [Overview](#overview)
+- [Project status](#project-status)
+- [Tech stack](#tech-stack)
+- [Architecture](#architecture)
+- [Planned API](#planned-api)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [Available scripts](#available-scripts)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Scope](#scope)
+- [License](#license)
+
+## Overview
+
+ClaimFlow is a fictional company that handles claims for several small insurers. The API is designed around four roles:
+
+| Role | Responsibilities |
+| --- | --- |
+| `POLICYHOLDER` | Declares a claim, attaches documents and tracks its progress |
+| `HANDLER` | Takes claims from the queue, appoints an expert, decides and settles |
+| `EXPERT` | Reviews assigned cases and submits a costed report |
+| `ADMIN` | Creates staff accounts and policies, supervises overdue claims |
+
+### Claim lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> DECLARED
+    DECLARED --> UNDER_REVIEW: taken by a handler
+    DECLARED --> CLOSED: withdrawn by the policyholder
+    UNDER_REVIEW --> EXPERTISE: expert appointed
+    UNDER_REVIEW --> ACCEPTED
+    UNDER_REVIEW --> REJECTED
+    EXPERTISE --> ACCEPTED: after the expert report
+    EXPERTISE --> REJECTED: after the expert report
+    ACCEPTED --> SETTLED
+    SETTLED --> CLOSED
+    REJECTED --> CLOSED
 ```
 
-## Performance du hachage des mots de passe
+Any transition outside this flow is rejected with `409 Conflict`.
 
-Mesures de `ScryptPasswordHasher` (`src/modules/auth/password-hasher.ts`) avec `log2N=17`, le 30 octobre 2026, sur un PC Windows à 12 cœurs logiques, avec Node 24.16 et 4 threads libuv (valeur par défaut).
+### Key business rules
 
-| Scénario | Temps total | Hachage le plus lent | Retard max. de la boucle Node |
+These rules define the target behavior of the API.
+
+- A claim can only be declared on the policyholder's own policy, for an incident inside the coverage period and of a type covered by the product.
+- Late declarations are accepted and flagged, never rejected automatically: the deadline is 5 business days, or 2 for theft.
+- Business days run from Monday to Friday, and "today" is evaluated in the `Europe/Paris` time zone.
+- A rejection requires a written reason.
+- Compensation equals the accepted amount minus the deductible, is never negative, and is stored in euro cents.
+- Every state change is recorded in the same operation as an audit event that can never be modified or deleted.
+- A claim a user may not see does not exist for that user and returns `404 Not Found`.
+- Attachments are limited to PDF, JPEG and PNG files of up to 5 MB, and their content is verified.
+
+## Project status
+
+| Area | Status |
+| --- | --- |
+| Express application, security headers, structured logging, error handling | Done |
+| Environment validation, graceful shutdown, `GET /health` | Done |
+| Prisma schema and initial migration for users, policies, claims, events and documents | Done |
+| Password hashing with scrypt | Done, not exposed by a route yet |
+| JWT tokens, authentication and role middleware | Done, not exposed by a route yet |
+| Business-day calendar and injectable clock | Done |
+| AWS infrastructure for ECS Fargate and the load balancer | Done, not deployed |
+| Authentication routes | Planned |
+| Policy and claim endpoints | Planned |
+| Claim state machine and business rules | Planned |
+| Audit trail protection, attachments and overdue claims | Planned |
+| Managed PostgreSQL and S3 in the infrastructure | Planned |
+
+## Tech stack
+
+| Area | Technology |
+| --- | --- |
+| Runtime and language | Node.js 22, TypeScript (strict) |
+| API | Express 5, Zod, Helmet, Pino |
+| Authentication | scrypt (`node:crypto`), JWT (`jose`) |
+| Data | PostgreSQL, Prisma 7 |
+| Testing | Vitest, Supertest |
+| Code quality | Oxlint, Prettier |
+| Tooling | pnpm workspaces and catalogs, Turborepo |
+| Infrastructure | Docker, AWS CDK, ECS Fargate, Application Load Balancer |
+| Continuous integration | GitHub Actions |
+
+## Architecture
+
+The application is built around a composition root: `src/container.ts` creates the dependencies and `src/app.ts` builds the Express application without starting it, which keeps it testable. Infrastructure concerns live in `src/shared`, and business features live in `src/modules`.
+
+```text
+.
+├── src/
+│   ├── config/          Environment validation
+│   ├── modules/
+│   │   ├── auth/        Password hashing, tokens and middleware
+│   │   └── health/      Health check route
+│   ├── shared/
+│   │   ├── database/    Prisma client
+│   │   ├── http/        Errors, error handler and request validation
+│   │   ├── ids/         Readable reference codes
+│   │   ├── logger/      Pino logger
+│   │   └── time/        Business calendar and clock
+│   ├── app.ts           Express application
+│   ├── container.ts     Composition root
+│   └── server.ts        HTTP server and graceful shutdown
+├── prisma/              Schema and migrations
+├── test/                Unit, end-to-end and load tests
+├── infra/               AWS CDK application
+└── Dockerfile           Multi-stage production image
+```
+
+### Design decisions
+
+The target design rests on the following decisions. Those not implemented yet are listed in [Project status](#project-status).
+
+| Decision | Reason |
+| --- | --- |
+| State machine as a data table and a pure function | Readable by the business, exhaustively testable, no dependency |
+| A single transition route instead of one route per action | Keeps all state rules in one place |
+| Audit event in the same transaction as the state change | One can never exist without the other |
+| PostgreSQL trigger refusing updates and deletes on audit events | Protects the trail even against a bug or a manual query |
+| Compare-and-set on the claim status | Two concurrent handlers cannot both succeed, and the loser receives `409` |
+| `404` rather than `403` for a claim that is not visible | Does not reveal that another user's claim exists |
+| scrypt from `node:crypto`, with parameters stored in each hash | No native dependency, and hashes can be upgraded progressively |
+| Short-lived HS256 JWT, without refresh tokens | Stateless and simple to deploy, at the cost of no early revocation |
+| Injected clock | Deadlines and SLAs can be tested to the second |
+| Amounts stored as integer cents | Avoids floating-point rounding errors |
+| UUID v7 identifiers | Not guessable, and sorted by time for efficient indexes |
+| `FileStorage` interface for local disk and S3 | Fast tests without AWS |
+
+## Planned API
+
+These endpoints are planned and not available yet.
+
+| Method | Path | Access | Description |
 | --- | --- | --- | --- |
-| 1 hachage | 225 ms | 225 ms | 16 ms |
-| 4 hachages simultanés | 371 ms | 371 ms | 16 ms |
-| 8 hachages simultanés | 719 ms | 719 ms | 18 ms |
-| 1 `scryptSync` (à éviter) | 295 ms | 295 ms | 246 ms |
+| `POST` | `/auth/register` | Public | Creates a policyholder account |
+| `POST` | `/auth/login` | Public | Returns a token |
+| `GET` | `/auth/me` | Authenticated | Returns the current user |
+| `POST` | `/users` | `ADMIN` | Creates a staff account |
+| `GET` | `/users` | `HANDLER`, `ADMIN` | Lists users by role |
+| `POST` | `/policies` | `ADMIN` | Creates a policy |
+| `GET` | `/policies`, `/policies/:id` | Authenticated | Lists or reads visible policies |
+| `POST` | `/claims` | `POLICYHOLDER` | Declares a claim |
+| `GET` | `/claims` | Authenticated | Lists visible claims with pagination |
+| `GET` | `/claims/overdue` | `HANDLER`, `ADMIN` | Lists overdue claims |
+| `GET` | `/claims/:id` | Claim visibility | Reads a claim and its available transitions |
+| `POST` | `/claims/:id/transitions` | Depends on the transition | Changes the claim status |
+| `POST` | `/claims/:id/expert-report` | Assigned `EXPERT` | Submits the expert report |
+| `GET` | `/claims/:id/events` | Claim visibility | Reads the audit trail |
+| `POST` | `/claims/:id/documents` | Claim visibility | Uploads an attachment |
+| `GET` | `/claims/:id/documents` | Claim visibility | Lists attachments |
+| `GET` | `/claims/:id/documents/:docId/content` | Claim visibility | Downloads an attachment |
 
-Pic de mémoire du processus sur l'ensemble du test : 580 Mo.
+## Getting started
 
-Ces valeurs viennent d'une seule exécution sur un poste de développement. Elles ne représentent pas la production : aucune mesure n'a été faite sur AWS, où la tâche Fargate actuelle dispose de 0,25 vCPU et 512 Mo.
+### Prerequisites
 
-## Test de charge
+- Node.js 22.12 or later
+- pnpm 12
+- Docker, to run PostgreSQL locally
+
+### Installation
 
 ```bash
-pnpm run test:stress
+git clone https://github.com/jordachmakaya/clainflow.git
+cd clainflow
+pnpm install
+cp .env.example .env
+pnpm run db:generate
 ```
 
-Docker doit tourner. Le détail est écrit dans `test/stress/results.log`, ignoré par git.
+### Start the database
 
-**Durée :** 12 min 29 s pour l'exécution complète du 30 octobre 2026, construction de l'image comprise. Chaque palier dure 20 s pour les connexions et 10 s pour `/health`.
+```bash
+docker run -d --name claimflow-db \
+  -e POSTGRES_PASSWORD=fakePassWord \
+  -e POSTGRES_DB=mydb \
+  -p 5432:5432 \
+  postgres:17
 
-Le test lance la vraie image dans Docker avec les limites de la tâche Fargate, puis chaque utilisateur enchaîne les requêtes sans pause. `/login` n'existe pas encore dans l'API : `test/stress/stress-server.mjs` reproduit son coût avec `hasher.verify()`, sans base de données.
+pnpm run db:deploy
+```
 
-### Test n° 1 : conditions
+### Run the API
 
-Ces résultats ne sont comparables à un prochain test que si les conditions sont les mêmes. Refaire ce tableau à chaque nouveau test.
+```bash
+pnpm run dev
+```
 
-| Élément | Valeur |
+The API listens on port 3000:
+
+```bash
+curl http://localhost:3000/health
+# {"status":"OK"}
+```
+
+### Run with Docker
+
+```bash
+docker build -t claimflow .
+
+docker run --rm -p 3000:3000 \
+  -e PORT=3000 \
+  -e JWT_SECRET=<at-least-32-characters> \
+  -e DATABASE_URL=<postgresql-url> \
+  claimflow
+```
+
+## Configuration
+
+Variables are validated at startup by `src/config/env.ts`. The application refuses to start if the configuration is invalid. See `.env.example` for a local setup.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `JWT_SECRET` | Yes | | Token signing secret, at least 32 characters |
+| `DATABASE_URL` | Yes, unless `DB_*` is set | | PostgreSQL connection URL |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Yes, unless `DATABASE_URL` is set | | Connection settings used to build the URL |
+| `NODE_ENV` | No | `development` | `development`, `test` or `production` |
+| `PORT` | No | `3000` | HTTP port |
+| `LOG_LEVEL` | No | `info` | Pino log level |
+| `JWT_TTL_SECOND` | No | `3600` | Token lifetime in seconds |
+| `PASSWORD_SCRYPT_LOG2N` | No | `17` | scrypt cost, at least 17 in production |
+| `SLA_UNDER_REVIEW_DAYS` | No | `10` | Days before a claim under review is overdue |
+| `FILE_STORAGE_DRIVER` | No | `local` | `local` or `s3` |
+| `UPLOAD_DIR` | No | `./upload` | Local storage directory |
+| `S3_BUCKET`, `S3_REGION` | With `s3` | | Attachment storage |
+| `MAX_UPLOAD_BYTES` | No | `5242880` | Maximum upload size |
+
+## Available scripts
+
+| Script | Description |
 | --- | --- |
-| Date | 30 octobre 2026, 17 h 58 à 18 h 11 |
-| Code testé | Commit `ed12060`, plus `src/modules/auth/` et d'autres changements non commités |
-| Fonctionnalités de l'API | `/health` seulement : pas de vraie route métier, pas d'authentification réelle |
-| Base de données | Aucune : `DATABASE_URL` est factice et aucune requête SQL n'est exécutée |
-| `/login` | Route de test, définie uniquement dans `test/stress/stress-server.mjs`, qui appelle `hasher.verify()` |
-| Coût scrypt | `PASSWORD_SCRYPT_LOG2N=17` |
-| Logs | `LOG_LEVEL=info`, une ligne par requête `/health` |
-| Environnement | Production simulée en local, rien sur AWS |
-| Image | `Dockerfile` du projet, `node:22-alpine`, Node 22.23.4, `amd64` |
-| Limites du conteneur | Scénarios A, B et D : 0,25 vCPU, 512 Mo. Scénario C : 0,5 vCPU, 1 Go. Sans swap |
-| Threads libuv | 4 par défaut, 2 dans le scénario B |
-| Conteneurs | 1 seul, sans load balancer |
-| Machine | Intel Core i5-1334U, 12 cœurs logiques, 16 Go, Windows 11 |
-| Docker | Docker Desktop 29.6.2, machine virtuelle de 12 CPU et 7,6 Gio |
-| Générateur de charge | `test/stress/run-stress.cjs`, sur la même machine que le conteneur |
-| Comportement simulé | Chaque utilisateur enchaîne les requêtes sans aucune pause, avec une connexion réutilisée |
-| Paliers `/login` | 1, 2, 3, 4, 8, 16 et 32 utilisateurs, 20 s chacun, délai maximal de 30 s par requête |
-| Paliers `/health` | 10, 50, 100, 250, 500, 1000 et 2000 utilisateurs, 10 s chacun, délai maximal de 10 s par requête |
-| Répétitions | 1 seule exécution |
+| `pnpm run dev` | Starts the API in watch mode |
+| `pnpm run build` | Compiles TypeScript to `dist` |
+| `pnpm run start` | Runs the compiled application |
+| `pnpm run typecheck` | Checks types |
+| `pnpm run lint` | Runs Oxlint |
+| `pnpm run format` | Formats the code with Prettier |
+| `pnpm run test` | Runs all API tests |
+| `pnpm run test:unit` | Runs unit tests |
+| `pnpm run test:e2e` | Runs end-to-end tests |
+| `pnpm run test:coverage` | Runs tests and enforces coverage thresholds |
+| `pnpm run test:stress` | Runs the local load test with Docker |
+| `pnpm run test:all` | Runs the tests of every package with Turborepo |
+| `pnpm run db:migrate` | Creates and applies a development migration |
+| `pnpm run db:deploy` | Applies pending migrations |
+| `pnpm run synth:infra` | Generates the CloudFormation template |
 
-Le scénario A s'arrête à la mort du conteneur : les paliers suivants n'ont pas été testés.
+## Testing
 
-### Test n° 1 : connexions simultanées
+```bash
+pnpm run test:coverage
+```
 
-Mesures du 30 octobre 2026, avec `log2N=17`. Valeurs : temps de réponse au 95ᵉ percentile.
+Coverage is enforced at a minimum of 80% for lines, branches, functions and statements. The CI pipeline also runs lint, type checks, infrastructure tests and a build. Unit tests run a second time in a UTC+14 time zone to confirm that date logic does not depend on the server time zone.
 
-| Connexions simultanées | A : 0,25 vCPU, 512 Mo (actuel) | B : A avec `UV_THREADPOOL_SIZE=2` | C : 0,5 vCPU, 1 Go |
-| --- | --- | --- | --- |
-| 1 | 1,8 s | 1,8 s | 0,7 s |
-| 2 | 4,4 s | 4,3 s | 1,5 s |
-| 3 | 9,8 s | 7,0 s | 3,1 s |
-| 4 | **Conteneur tué (mémoire)** | 8,2 s | 6,2 s |
-| 8 | Non testé | 16,5 s | 11,5 s |
-| 16 | Non testé | 29,9 s, 7 échecs | 22,0 s |
-| 32 | Non testé | 30,0 s, 25 échecs | 27,8 s, 24 échecs |
-| Débit observé | 0,5 à 0,7 connexion/s | 0,6 à 0,9 connexion/s | 0,8 à 1,7 connexion/s |
+Load test results and their exact conditions are published in test reports:
 
-Pendant ces charges, tant que le conteneur reste en vie, `/health` répond en moins de 85 ms (95ᵉ percentile) : les connexions lentes ne bloquent pas le reste de l'API.
+- [October 30, 2026](test-report-2026-30-10.md): password hashing performance and first load test
 
-### Test n° 1 : requêtes simples
+## Deployment
 
-`/health` seul, avec les limites actuelles (0,25 vCPU, 512 Mo).
+The `infra` package is an AWS CDK application that describes a VPC, an ECS Fargate service and a public Application Load Balancer. It builds the production image from the root `Dockerfile` and reads application secrets from AWS Secrets Manager.
 
-| Utilisateurs simultanés | Débit | Temps de réponse (95ᵉ percentile) | Échecs |
-| --- | --- | --- | --- |
-| 10 | 162 req/s | 197 ms | 0 |
-| 50 | 227 req/s | 601 ms | 0 |
-| 100 | 255 req/s | 804 ms | 14 |
-| 250 | 259 req/s | 886 ms | 140 |
-| 500 | 304 req/s | 707 ms | 368 |
-| 1000 | 285 req/s | 788 ms | 868 |
-| 2000 | 265 req/s | 801 ms | 1868 |
+```bash
+pnpm --filter infra run bootstrap
+pnpm --filter infra run deploy
+```
 
-### Test n° 1 : estimation d'utilisateurs réels
+Deployments are manual: pushing to `main` runs the CI pipeline but does not deploy anything. Before a production deployment, the stack still needs a managed PostgreSQL database and an HTTPS listener.
 
-**Environ 1 000 utilisateurs actifs en même temps** : c'est une estimation calculée, pas une valeur mesurée.
+## Scope
 
-- **Calcul :** environ 250 req/s, divisées par 1 requête toutes les 5 s par utilisateur, donnent 1 250 utilisateurs, arrondis à environ 1 000.
-- **Hypothèse :** le rythme d'une requête toutes les 5 s est supposé, il n'a pas été observé sur de vrais utilisateurs.
-- **Portée :** ce chiffre ne vaut que pour `/health`, sans base de données. Les vraies routes seront plus lentes, donc il devra être recalculé au prochain test.
-- **Ne couvre pas les connexions :** avec la configuration actuelle, 4 connexions simultanées tuent le conteneur, quel que soit le nombre d'utilisateurs déjà actifs.
+The following topics are intentionally out of scope: front-end, email notifications, real payments, public holidays, natural disaster deadlines, refresh tokens and session revocation, online underwriting, antivirus scanning and multi-tenancy.
 
-### Test n° 1 : limites de ces mesures
+Legal rules are simplified for this project and do not constitute legal advice.
 
-- Docker limite le processeur de façon comparable à Fargate, sans le reproduire exactement.
-- Une seule exécution a été faite, sans base de données : les vraies routes seront plus lentes.
-- Au-delà de 50 utilisateurs, les échecs peuvent venir de Docker Desktop ou du générateur de charge, et pas seulement de l'API.
+## License
+
+Released under the MIT License, as declared in `package.json`.

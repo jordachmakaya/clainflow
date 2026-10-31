@@ -13,3 +13,5 @@ uploads
 /generated/prisma
 
 deploy-in-aws-free-tier.md
+PROJECT_DESCRIPTION.md
+PROJECT_ARCHI.md

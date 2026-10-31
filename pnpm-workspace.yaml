@@ -1,6 +1,5 @@
 # Le dépôt contient 2 paquets : l'API (racine) et l'infrastructure AWS (infra/).
 packages:
-  - '.'
   - infra
 
 # Source unique des versions : les package.json y font référence avec "catalog:".
