@@ -35,7 +35,8 @@
     "db:seed": "prisma db seed",
     "start:prod": "node dist/scripts/migrate-deploy.js && node dist/server.js",
     "test:unit": "vitest run --project unit",
-    "test:e2e": "vitest run --project e2e"
+    "test:e2e": "vitest run --project e2e",
+    "test:security": "vitest run --project security"
   },
   "devEngines": {
     "packageManager": {
