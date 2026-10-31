@@ -1,5 +1,6 @@
 import type {RequestHandler,ErrorRequestHandler} from "express";
 import type {Logger} from "pino";
+import {toHttpError} from "../database/prisma-errors.js";
 import {HttpError} from "./http-error.js";
 
 
@@ -18,17 +19,21 @@ export const notFoundHandler: RequestHandler = (req, res) => {
 // Express 5 y envoie aussi les erreurs des handlers async (promesse rejetée).
 export function errorHandler(logger: Logger): ErrorRequestHandler{
     return (error:unknown, _req,res, _next) => {
-        if (error instanceof HttpError) {
+        const httpError = error instanceof HttpError ? error : toHttpError(error);
+
+        if (httpError) {
+            // Une 5xx traduite reste une panne : on garde l'erreur d'origine dans les logs.
+            if(httpError.statusCode >= 500) logger.error({err: error}, 'Service unavailable');
 
             const body : ErrorBody = {
-                statusCode: error.statusCode,
-                message:error.message
+                statusCode: httpError.statusCode,
+                message:httpError.message
             }
 
-            if(error.details !== undefined ) {
-                body.details = error.details;
+            if(httpError.details !== undefined ) {
+                body.details = httpError.details;
            }
-            res.status(error.statusCode).json(body);
+            res.status(httpError.statusCode).json(body);
             return
         };
 

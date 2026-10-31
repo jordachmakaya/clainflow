@@ -6,6 +6,7 @@ import {
     HttpError,
     NotFoundError,
     PayloadToLargeError,
+    ServiceUnavailableError,
     UnauthorizedError,
     UnprocessableEntityError,
     UnsupportedMediaTypeError,
@@ -30,6 +31,7 @@ describe('HttpError', () => {
         ['PayloadToLargeError', () => new PayloadToLargeError(), 413, 'Payload is to large'],
         ['UnsupportedMediaTypeError', () => new UnsupportedMediaTypeError(), 415, 'Unsupported Media type'],
         ['UnprocessableEntityError', () => new UnprocessableEntityError(), 422, 'Unprocessable Entity'],
+        ['ServiceUnavailableError', () => new ServiceUnavailableError(), 503, 'Service temporarily unavailable'],
     ])('%s a le bon statut et le bon message par défaut', (name, create, statusCode, message) => {
         const error = create();
 
@@ -46,6 +48,7 @@ describe('HttpError', () => {
         ['ConflictError', () => new ConflictError('custom')],
         ['PayloadToLargeError', () => new PayloadToLargeError('custom')],
         ['UnsupportedMediaTypeError', () => new UnsupportedMediaTypeError('custom')],
+        ['ServiceUnavailableError', () => new ServiceUnavailableError('custom')],
     ])('%s accepte un message personnalisé', (_name, create) => {
         expect(create().message).toBe('custom');
     });

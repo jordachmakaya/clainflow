@@ -2,6 +2,7 @@ import express from "express";
 import {pino, type Logger} from "pino";
 import request from "supertest";
 import {describe, expect, it, vi} from "vitest";
+import {Prisma} from "../../../src/generated/prisma/client.js";
 import {errorHandler} from "../../../src/shared/http/error-handler.js";
 import {
     BadRequestError,
@@ -20,7 +21,59 @@ function appThrowing(error: unknown, logger: Logger = {error: vi.fn()} as unknow
     return app;
 }
 
+function prismaError(code: string) {
+    return new Prisma.PrismaClientKnownRequestError('users_email_key on db.internal', {
+        code,
+        clientVersion: 'test',
+        meta: {target: ['email']},
+    });
+}
+
 describe('errorHandler', () => {
+    it.each([
+        ['P2002', 409, 'Resource already exists'],
+        ['P2025', 404, 'Resource not found'],
+        ['P2007', 400, 'Invalid value'],
+        ['P1001', 503, 'Service temporarily unavailable'],
+    ])('traduit l\'erreur Prisma %s en %d', async (code, statusCode, message) => {
+        await request(appThrowing(prismaError(code)))
+            .get('/boom')
+            .expect(statusCode, {statusCode, message});
+    });
+
+    it('journalise une panne de base avec son erreur d\'origine', async () => {
+        const logger = {error: vi.fn()} as unknown as Logger;
+        const error = prismaError('P1001');
+
+        await request(appThrowing(error, logger)).get('/boom').expect(503);
+
+        expect(logger.error).toHaveBeenCalledExactlyOnceWith({err: error}, 'Service unavailable');
+    });
+
+    it('ne journalise pas une erreur attendue', async () => {
+        const logger = {error: vi.fn()} as unknown as Logger;
+
+        await request(appThrowing(prismaError('P2002'), logger)).get('/boom').expect(409);
+
+        expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('garde une 500 pour une erreur Prisma inconnue', async () => {
+        const logger = {error: vi.fn()} as unknown as Logger;
+
+        await request(appThrowing(prismaError('P9999'), logger))
+            .get('/boom')
+            .expect(500, {statusCode: 500, message: 'Internal server error'});
+
+        expect(logger.error).toHaveBeenCalledOnce();
+    });
+
+    it('garde une 500 pour une erreur de validation Prisma', async () => {
+        const error = new Prisma.PrismaClientValidationError('bug', {clientVersion: 'test'});
+
+        await request(appThrowing(error)).get('/boom').expect(500);
+    });
+
     it('renvoie le statut et le message d\'une ConflictError', async () => {
         await request(appThrowing(new ConflictError('Already exists')))
             .get('/boom')

@@ -12,7 +12,7 @@ export class HttpError extends Error {
 }
 
 export class BadRequestError extends HttpError {
-    constructor(message= "Bad Request", details: unknown) {
+    constructor(message= "Bad Request", details?: unknown) {
         super(400, message, details);
     }
 }
@@ -50,6 +50,12 @@ export class PayloadToLargeError extends HttpError {
 export class UnprocessableEntityError extends HttpError {
     constructor(message= "Unprocessable Entity", details?:unknown) {
         super(422, message, details);
+    }
+}
+
+export class ServiceUnavailableError extends HttpError {
+    constructor(message= "Service temporarily unavailable") {
+        super(503, message);
     }
 }
 
