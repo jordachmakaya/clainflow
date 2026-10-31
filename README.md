@@ -124,7 +124,7 @@ The application is built around a composition root: `src/container.ts` creates t
 │   ├── container.ts     Composition root
 │   └── server.ts        HTTP server and graceful shutdown
 ├── prisma/              Schema and migrations
-├── test/                Unit, end-to-end and load tests
+├── test/                Unit, end-to-end, security and load tests
 ├── infra/               AWS CDK application
 │   ├── bin/
 │   │   └── app.ts       Deployment entry point and parameters
@@ -267,6 +267,7 @@ Variables are validated at startup by `src/config/env.ts`. The application refus
 | `pnpm run test` | Runs all API tests |
 | `pnpm run test:unit` | Runs unit tests |
 | `pnpm run test:e2e` | Runs end-to-end tests |
+| `pnpm run test:security` | Runs the security oracle |
 | `pnpm run test:coverage` | Runs tests and enforces coverage thresholds |
 | `pnpm run test:stress` | Runs the local load test with Docker |
 | `pnpm run test:all` | Runs the tests of every package with Turborepo |
@@ -285,6 +286,50 @@ Coverage is enforced at a minimum of 80% for lines, branches, functions and stat
 Load test results and their exact conditions are published in test reports:
 
 - [October 30, 2026](test-report-2026-30-10.md): password hashing performance and first load test
+
+### Security oracle
+
+`test/security/auth.oracle.test.ts` plays the attacker against `AuthService` and the authentication schemas, then checks a security invariant after each attempt. It runs with `pnpm run test:security`.
+
+The oracle uses the real scrypt hasher and real JWT tokens where the scenario depends on them, with an in-memory repository. It calls the service directly, so it does not go through HTTP or PostgreSQL. Token forgery scenarios exercise `TokenService` on tokens issued by `AuthService`. Enumeration resistance is checked by comparing the error returned and the hashing work performed, not by measuring response times. A passing scenario shows that this attack failed against this code, not that the code is free of vulnerabilities.
+
+#### What the oracle failed to break
+
+| Attack | Result |
+| --- | --- |
+| Altered passwords, including case, spaces, truncation and null bytes | Refused, with the same error as a wrong password |
+| Pass-the-hash with a stolen hash | Refused |
+| Logging in with the internal decoy password | Refused |
+| Overwriting a stored hash with a wrong password | Stored hash unchanged |
+| Corrupted stored hashes, including memory bombs and lowered costs | Refused without a crash |
+| Account enumeration on login | Same error and same hashing work for an unknown email and a wrong password |
+| Privilege escalation through the request body or by bypassing the schema | Account stays `POLICYHOLDER` |
+| Prototype pollution through `__proto__` and `constructor` | Keys dropped, prototype untouched |
+| Account pre-hijacking with look-alike emails (Unicode, invisible characters, case) | Refused or matched to the existing account |
+| SQL and header injection in emails, Prisma operators and type confusion | Refused by the schemas |
+| ReDoS on the email field, and 1,000 seeded random inputs | No crash, parsing stays under the time limit |
+| Oversized passwords | Refused before scrypt runs |
+| Weak passwords at registration: blank, repeated, sequences and common passwords | Refused by the schemas |
+| Line breaks, null bytes and right-to-left override characters in `fullName` | Refused by the schemas |
+| Bursts of unknown emails, and a decoy hash failure during a burst | One hash computed, service recovers |
+| Concurrent registrations for one email | One account created, the others receive `409` |
+| Concurrent password rehashes | Account stays usable, with the stronger hash |
+| Forged tokens: edited role, stripped signature, `alg=none`, RS256/HS256 confusion, wrong secret, wrong algorithm, wrong issuer or audience, expired | Refused with `401` |
+| Reading another profile with a crafted identifier | Not found, and a token only returns its own account |
+| Stolen database: identical passwords, plaintext search, cost downgrade | Unique salted hashes, cost never lowered |
+| Secret leaks in responses, tokens and errors | No password or hash exposed |
+| Failures during login (hash check, database, token signing) | No session issued, and never an empty response |
+
+The weak password rule applies when an account is created, not at login, so an existing account keeps working. It catches obvious patterns and a short built-in list. It does not replace a check against known breaches.
+
+#### Not covered
+
+These scenarios need a new feature or a decision, and are tracked as `todo` in the oracle:
+
+- Rate limiting against credential stuffing and password spraying.
+- Hiding whether an email has an account at registration, which currently returns `409 Email already exists`.
+- Checking passwords against known breaches.
+- Revoking a token after an account is deleted or a role changes. Session revocation is out of [scope](#scope), so a token stays valid until it expires.
 
 ## Deployment
 
