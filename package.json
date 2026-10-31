@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:stress": "node test/stress/run-stress.cjs",
 
     "dev:all": "turbo run dev",
     "build:all": "turbo run build",
