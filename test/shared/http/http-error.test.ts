@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {
     BadRequestError,
     ConflictError,
+    ForbiddenError,
     HttpError,
     NotFoundError,
     PayloadToLargeError,
@@ -23,6 +24,7 @@ describe('HttpError', () => {
     it.each([
         ['BadRequestError', () => new BadRequestError(undefined, undefined), 400, 'Bad Request'],
         ['UnauthorizedError', () => new UnauthorizedError(), 401, 'Unauthorized'],
+        ['ForbiddenError', () => new ForbiddenError(), 403, 'Forbidden'],
         ['NotFoundError', () => new NotFoundError(), 404, 'Not Found'],
         ['ConflictError', () => new ConflictError(), 409, 'Conflict'],
         ['PayloadToLargeError', () => new PayloadToLargeError(), 413, 'Payload is to large'],
@@ -39,6 +41,7 @@ describe('HttpError', () => {
 
     it.each([
         ['UnauthorizedError', () => new UnauthorizedError('custom')],
+        ['ForbiddenError', () => new ForbiddenError('custom')],
         ['NotFoundError', () => new NotFoundError('custom')],
         ['ConflictError', () => new ConflictError('custom')],
         ['PayloadToLargeError', () => new PayloadToLargeError('custom')],

@@ -1,6 +1,8 @@
+import type {Role} from "../../generated/prisma/enums.js";
+
 export interface AuthUser{
     id: string;
-    role: string;
+    role: Role;
 }
 
 declare global {

@@ -6,6 +6,7 @@ import {errorHandler} from "../../../src/shared/http/error-handler.js";
 import {
     BadRequestError,
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     UnauthorizedError,
 } from "../../../src/shared/http/http-error.js";
@@ -64,6 +65,7 @@ describe('errorHandler', () => {
     it.each([
         ['BadRequestError', new BadRequestError('Validation failed', [{part: 'age', message: 'required'}]), 400],
         ['UnauthorizedError', new UnauthorizedError(), 401],
+        ['ForbiddenError', new ForbiddenError(), 403],
         ['NotFoundError', new NotFoundError(), 404],
     ])('renvoie le statut de %s', async (_name, error, statusCode) => {
         await request(appThrowing(error)).get('/boom').expect(statusCode);
