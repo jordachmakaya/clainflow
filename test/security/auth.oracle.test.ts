@@ -666,6 +666,12 @@ describe('oracle : limite de débit', () => {
         for (let i = 0; i < 25; i++) await login(CREDENTIALS).expect(200);
     });
 
+    it('stoppe la lecture en masse de /auth/me, même sans token valide', async () => {
+        for (let i = 0; i < 300; i++) await request(app).get('/auth/me').expect(401);
+
+        await request(app).get('/auth/me').expect(429);
+    });
+
     it('stoppe les inscriptions en masse, même invalides', async () => {
         for (let i = 0; i < 20; i++) await post('/auth/register', {}).expect(400);
 

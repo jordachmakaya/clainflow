@@ -299,7 +299,7 @@ pnpm run test:coverage
 
 Coverage is enforced at a minimum of 80% for lines, branches, functions and statements. The CI pipeline also runs lint, type checks, infrastructure tests and a build. Unit tests run a second time in a UTC+14 time zone to confirm that date logic does not depend on the server time zone.
 
-[CodeQL](https://codeql.github.com/) runs static security analysis on the TypeScript code and the GitHub Actions workflows, on every pull request, on every push to `main` and once a week. Its results appear in the repository's **Security** tab.
+[CodeQL](https://codeql.github.com/) runs static security analysis on the application code and the GitHub Actions workflows, without the `test` folder, on every pull request, on every push to `main` and once a week. Its results appear in the repository's **Security** tab.
 
 [Dependabot](https://docs.github.com/en/code-security/dependabot) checks the npm packages, GitHub Actions and Docker images every week and opens pull requests for updates. Each pull request goes through the same CI pipeline, and is merged by hand.
 
@@ -344,6 +344,7 @@ The auth oracle uses the real scrypt hasher and real JWT tokens where the scenar
 | Bypassing the limit with email case, a forged `X-Forwarded-For` or an IPv6 subnet | Same counter, still `429` |
 | Locking a victim out from another IP | The victim can still log in |
 | Mass registration, including invalid bodies | `429` after 20 requests per IP in 15 minutes |
+| Hammering `/auth/me`, with or without a valid token | `429` after 300 requests per IP in 15 minutes, before the token is checked |
 | Registering with a password from a known breach | Refused with `422`, no account created |
 | Reading the password from the breach lookup | Only the first 5 characters of its SHA-1 leave the server |
 | Taking the breach lookup down to block registration | Registration continues, and the failure is logged without the password |
@@ -379,7 +380,7 @@ The policies oracle sends HTTP requests through the real routes, schemas and JWT
 | Reading the SQL schema from a constraint error, or infrastructure details from a database failure | Generic `409` or `500` body |
 | Blocking a subscription with a number collision | Retried up to five times, then `409` |
 
-Staff can read every policy by design, so these scenarios restrict policyholders. The oracle has no `todo`, but two limits also apply here: a token keeps its role until it expires, and rate limiting only covers `/auth/login` and `/auth/register`.
+Staff can read every policy by design, so these scenarios restrict policyholders. The oracle has no `todo`, but two limits also apply here: a token keeps its role until it expires, and rate limiting only covers the `/auth` routes.
 
 #### What the claims oracle failed to break
 

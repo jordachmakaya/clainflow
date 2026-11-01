@@ -10,6 +10,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: '@types/node' # suit la version majeure de Node, changée à la main avec .nvmrc et le Dockerfile
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
@@ -23,3 +26,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: node # même raison que @types/node
+        update-types: [version-update:semver-major]

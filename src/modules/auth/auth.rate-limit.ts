@@ -9,6 +9,7 @@ export interface AuthRateLimits {
     maxFailuresPerAccount: number
     maxFailuresPerIp: number
     maxRegistrationsPerIp: number
+    maxProfileReadsPerIp: number
 }
 
 export const AUTH_RATE_LIMITS: AuthRateLimits = {
@@ -16,6 +17,7 @@ export const AUTH_RATE_LIMITS: AuthRateLimits = {
     maxFailuresPerAccount: 5,
     maxFailuresPerIp: 20,
     maxRegistrationsPerIp: 20,
+    maxProfileReadsPerIp: 300,
 }
 
 // ipKeyGenerator regroupe une adresse IPv6 par sous-réseau : un attaquant en possède des millions.
@@ -43,7 +45,7 @@ function limiter(
 // ⚠️ Compteurs en mémoire : chaque tâche Fargate compte de son côté. Il faudra un store partagé
 // (Redis) ou une règle AWS WAF pour une limite globale.
 export function createAuthRateLimiters(limits: AuthRateLimits) {
-    const {windowMs, maxFailuresPerAccount, maxFailuresPerIp, maxRegistrationsPerIp} = limits
+    const {windowMs, maxFailuresPerAccount, maxFailuresPerIp, maxRegistrationsPerIp, maxProfileReadsPerIp} = limits
 
     return {
         // Avant la validation : une requête invalide compte aussi, et aucune n'atteint scrypt au-delà de la limite.
@@ -58,5 +60,7 @@ export function createAuthRateLimiters(limits: AuthRateLimits) {
             (req, res) => `${clientKey(req)}:${valid(res.locals, 'body', loginSchema).email}`,
             true,
         ),
+        // Avant le token : une requête sans token valide compte aussi. Large, car un client lit ce profil souvent.
+        profileReadsPerIp: limiter(windowMs, maxProfileReadsPerIp, clientKey, false),
     }
 }
