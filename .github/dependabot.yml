@@ -1,0 +1,25 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm # couvre aussi pnpm : le dépôt est détecté grâce à pnpm-lock.yaml
+    directories: ['/', '/infra']
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7 # laisse le temps de repérer une version compromise, ne retarde pas les correctifs de sécurité
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

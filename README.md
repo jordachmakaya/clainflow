@@ -1,9 +1,17 @@
 # ClaimFlow
 
 [![CI](https://github.com/jordachmakaya/clainflow/actions/workflows/ci.yml/badge.svg)](https://github.com/jordachmakaya/clainflow/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jordachmakaya/clainflow/actions/workflows/codeql.yml/badge.svg)](https://github.com/jordachmakaya/clainflow/actions/workflows/codeql.yml)
+[![Dependabot](https://img.shields.io/badge/Dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](.github/dependabot.yml)
+[![Last commit](https://img.shields.io/github/last-commit/jordachmakaya/clainflow)](https://github.com/jordachmakaya/clainflow/commits/main)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 ![Node](https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Vitest](https://img.shields.io/badge/tested%20with-Vitest-6E9F18?logo=vitest&logoColor=white)
 
 ClaimFlow is a REST API built with Express.js and TypeScript for managing property and casualty insurance claims. It replaces email and spreadsheet workflows with a structured claim lifecycle and a tamper-proof audit trail of every decision. It is designed to be deployed on AWS, with ECS Fargate, RDS PostgreSQL and S3.
 
@@ -290,6 +298,10 @@ pnpm run test:coverage
 ```
 
 Coverage is enforced at a minimum of 80% for lines, branches, functions and statements. The CI pipeline also runs lint, type checks, infrastructure tests and a build. Unit tests run a second time in a UTC+14 time zone to confirm that date logic does not depend on the server time zone.
+
+[CodeQL](https://codeql.github.com/) runs static security analysis on the TypeScript code and the GitHub Actions workflows, on every pull request, on every push to `main` and once a week. Its results appear in the repository's **Security** tab.
+
+[Dependabot](https://docs.github.com/en/code-security/dependabot) checks the npm packages, GitHub Actions and Docker images every week and opens pull requests for updates. Each pull request goes through the same CI pipeline, and is merged by hand.
 
 Load test results and their exact conditions are published in test reports:
 
