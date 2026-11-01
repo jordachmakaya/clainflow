@@ -43,6 +43,7 @@ export function createAuthRouter(
 
     router.get(
         '/me',
+        limiters.profileReadsPerIp,
         authenticate(token),
         async (req, res) => {
             const data = await auth.me(currentUser(res).id)

@@ -26,6 +26,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none # CodeQL lit les sources : pas besoin d'installer ni de compiler
+          config: |
+            paths-ignore:
+              - test # applications de test et mots de passe factices : uniquement des faux positifs
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}

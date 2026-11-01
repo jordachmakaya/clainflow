@@ -113,6 +113,7 @@ describe('auth router', () => {
             maxFailuresPerAccount: 2,
             maxFailuresPerIp: 3,
             maxRegistrationsPerIp: 1,
+            maxProfileReadsPerIp: 1,
         }));
         limited.use(errorHandler({error: vi.fn()} as unknown as Logger));
 
@@ -136,6 +137,27 @@ describe('auth router', () => {
             await request(limited).post('/auth/register').send({}).expect(400);
 
             await request(limited).post('/auth/register').send({}).expect(429);
+        });
+    });
+
+    describe('limite de débit de GET /auth/me', () => {
+        const limited = express();
+        limited.use('/auth', createAuthRouter(auth as unknown as AuthService, tokens, {
+            windowMs: 60_000,
+            maxFailuresPerAccount: 1,
+            maxFailuresPerIp: 1,
+            maxRegistrationsPerIp: 1,
+            maxProfileReadsPerIp: 1,
+        }));
+        limited.use(errorHandler({error: vi.fn()} as unknown as Logger));
+
+        it('renvoie 429 au-delà de la limite, avant de vérifier le token', async () => {
+            await request(limited).get('/auth/me').expect(401);
+            const verify = vi.spyOn(tokens, 'verify');
+
+            await request(limited).get('/auth/me').set('Authorization', 'Bearer x').expect(429);
+
+            expect(verify).not.toHaveBeenCalled();
         });
     });
 
