@@ -17,6 +17,7 @@ ClaimFlow is a REST API built with Express.js and TypeScript for managing proper
 ## Table of contents
 
 - [Overview](#overview)
+- [Business rules in detail](#business-rules-in-detail)
 - [Project status](#project-status)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
@@ -72,6 +73,12 @@ These rules define the target behavior of the API.
 - A claim a user may not see does not exist for that user and returns `404 Not Found`.
 - Attachments are limited to PDF, JPEG and PNG files of up to 5 MB, and their content is verified.
 
+## Business rules in detail
+
+The overview above summarizes how ClaimFlow is expected to behave. To see how these rules translate into code, the [business rules guide](src/modules/claims/BUSINESS_RULES.md) walks through what is already implemented, with diagrams and code excerpts, and assumes no insurance background.
+
+The guide covers coverage checks, declaration deadlines, the claim lifecycle, compensation and claim visibility. It also lists the rules that are not implemented yet.
+
 ## Project status
 
 | Area | Status |
@@ -85,7 +92,7 @@ These rules define the target behavior of the API.
 | AWS infrastructure for ECS Fargate and the load balancer | Done, not deployed |
 | Authentication routes | Planned |
 | Policy and claim endpoints | Planned |
-| Claim state machine and business rules | Planned |
+| Claim state machine and business rules | Done, not exposed by a route yet |
 | Audit trail protection, attachments and overdue claims | Planned |
 | Managed PostgreSQL and S3 in the infrastructure | Planned |
 
@@ -290,7 +297,7 @@ Load test results and their exact conditions are published in test reports:
 
 ### Security oracle
 
-`test/security/auth.oracle.test.ts` plays the attacker against `AuthService` and the authentication schemas, then checks a security invariant after each attempt. `test/security/policies.oracle.test.ts` does the same against the `/policies` routes. Both run with `pnpm run test:security`.
+`test/security/auth.oracle.test.ts` plays the attacker against `AuthService` and the authentication schemas, then checks a security invariant after each attempt. `test/security/policies.oracle.test.ts` does the same against the `/policies` routes, and `test/security/claims.oracle.test.ts` against the claim business rules. All three run with `pnpm run test:security`.
 
 The auth oracle uses the real scrypt hasher and real JWT tokens where the scenario depends on them, with an in-memory repository. It calls the service directly, so it does not go through HTTP or PostgreSQL. Token forgery scenarios exercise `TokenService` on tokens issued by `AuthService`. Enumeration resistance is checked by comparing the error returned and the hashing work performed, not by measuring response times. A passing scenario shows that this attack failed against this code, not that the code is free of vulnerabilities.
 
@@ -361,6 +368,36 @@ The policies oracle sends HTTP requests through the real routes, schemas and JWT
 | Blocking a subscription with a number collision | Retried up to five times, then `409` |
 
 Staff can read every policy by design, so these scenarios restrict policyholders. The oracle has no `todo`, but two limits also apply here: a token keeps its role until it expires, and rate limiting only covers `/auth/login` and `/auth/register`.
+
+#### What the claims oracle failed to break
+
+The claims oracle calls the pure functions of the claim domain directly, because the claim routes do not exist yet. It compares the state machine with an independent copy of the transition table from the specification, then explores every path a claim can take. The rules it attacks are explained in the [business rules guide](src/modules/claims/BUSINESS_RULES.md).
+
+| Attack | Result |
+| --- | --- |
+| Any transition outside the specification, for every pair of statuses and every role | Refused |
+| Skipping a step, staying on the same status or going back | Refused |
+| Settling a rejected claim, or settling without an acceptance | No path exists |
+| Reopening a closed claim | No path exists |
+| Policyholder trying anything but a withdrawal | Refused, and no path leads to a paid status |
+| Expert changing a claim's status | Refused: the role has no transition |
+| Staff withdrawing in place of the policyholder | Refused |
+| Deciding an expertise without the report, even as an admin | Refused, and no other path leaves `EXPERTISE` |
+| Faking the report with a truthy value such as `'false'`, `1` or an object | Refused: only `true` counts |
+| Reading another user's claim, for every combination of declarant, handler, expert and status | Hidden |
+| Gaining rights from being linked to a claim under another role | Hidden: only the account's role counts |
+| Passing a filter name as an identifier | Hidden |
+| Claim visible in its detail view but not in a list, or the reverse | Details and lists agree on every combination |
+| Delaying a theft declaration past 2 business days | Flagged as late |
+| Declaring just after midnight in Paris while it is still the previous day in UTC | Flagged as late |
+| Hiding a late declaration with an invalid date | Flagged as late |
+| Incident dated outside the coverage, or with an invalid date | Not covered |
+| Declaring an incident type the product does not cover | Not covered |
+| Negative compensation | Never produced for valid amounts |
+| Inflating compensation with a negative deductible | Refused with an error, no amount calculated |
+| `NaN`, infinite, decimal or oversized amounts | Refused with an error, no amount calculated |
+
+These checks stop at the domain functions. Who declares a claim, reasons for rejection and HTTP responses still need the service and routes. In `EXPERTISE` without a report, `availableTransitions` still lists `ACCEPTED` and `REJECTED`, which `decideTransition` refuses, so only `decideTransition` can authorize a change.
 
 ## Deployment
 
