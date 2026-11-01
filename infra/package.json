@@ -22,7 +22,7 @@
     "@types/node": "^22.20.5",
     "aws-cdk": "catalog:",
     "tsx": "catalog:",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   }
 }
