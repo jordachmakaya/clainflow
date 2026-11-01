@@ -291,6 +291,12 @@ pnpm run test:coverage
 
 Coverage is enforced at a minimum of 80% for lines, branches, functions and statements. The CI pipeline also runs lint, type checks, infrastructure tests and a build. Unit tests run a second time in a UTC+14 time zone to confirm that date logic does not depend on the server time zone.
 
+The CI pipeline sends the `coverage/lcov.info` report to [SonarQube Cloud](https://sonarcloud.io/project/overview?id=jordachmakaya_clainflow), using the settings in `sonar-project.properties`. This analysis needs the `SONAR_TOKEN` repository secret and Automatic Analysis turned off in SonarQube Cloud. Without the token, for example on a pull request from a fork, the CI pipeline skips this step.
+
+[CodeQL](https://codeql.github.com/) runs static security analysis on the TypeScript code and the GitHub Actions workflows, on every pull request, on every push to `main` and once a week. Its results appear in the repository's **Security** tab.
+
+[Dependabot](https://docs.github.com/en/code-security/dependabot) checks the npm packages, GitHub Actions and Docker images every week and opens pull requests for updates. Each pull request goes through the same CI pipeline, and is merged by hand. SonarQube Cloud analysis is skipped on these pull requests, because Dependabot cannot read the `SONAR_TOKEN` repository secret.
+
 Load test results and their exact conditions are published in test reports:
 
 - [October 30, 2026](test-report-2026-30-10.md): password hashing performance and first load test
